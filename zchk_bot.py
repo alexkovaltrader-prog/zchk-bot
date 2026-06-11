@@ -262,6 +262,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Ответ на вопрос
     elif data.startswith("ans_"):
         ans_idx = int(data.replace("ans_", ""))
+        if not state or "track" not in state:
+            # state потерян — просим начать заново
+            await query.edit_message_text(
+                "Что-то пошло не так. Напиши /start чтобы начать заново.",
+                parse_mode="Markdown"
+            )
+            return
         state["answers"].append(ans_idx)
         state["step"] += 1
         set_state(user.id, state)
@@ -343,14 +350,17 @@ async def send_result(query, context, state, user):
     # Планируем прогрев
     chat_id = query.message.chat_id
     warmup_msgs = WARMUP.get(track_key, [])
-    for i, msg in enumerate(warmup_msgs):
-        delay = (i + 1) * 86400  # 1, 2, 3 дня в секундах
-        context.job_queue.run_once(
-            send_warmup,
-            delay,
-            data={"chat_id": chat_id, "text": msg, "step": i},
-            name=f"warmup_{chat_id}_{i}"
-        )
+    try:
+        for i, msg in enumerate(warmup_msgs):
+            delay = (i + 1) * 86400
+            context.job_queue.run_once(
+                send_warmup,
+                delay,
+                data={"chat_id": chat_id, "text": msg, "step": i},
+                name=f"warmup_{chat_id}_{i}"
+            )
+    except Exception as e:
+        logging.error(f"Warmup scheduling failed: {e}")
 
     kb = [
         [InlineKeyboardButton("👤 История Ярослава", callback_data="show_story")],
@@ -394,7 +404,11 @@ async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
 
 # ── ЗАПУСК ───────────────────────────────────────────────────────────────────
 def main():
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button))
     print("✅ ZCHK Academy бот запущен")
