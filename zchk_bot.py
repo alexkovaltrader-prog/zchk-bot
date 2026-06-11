@@ -282,18 +282,15 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # История Ярослава
     elif data == "show_story":
         kb = [
-            [InlineKeyboardButton("⚡️ Почему ZCHK", callback_data="show_why")],
-            [InlineKeyboardButton("🚀 Протестировать платформу", url=PLATFORM_URL)],
-            [InlineKeyboardButton("📞 Записаться на звонок", url=CALENDLY_URL)],
+            [InlineKeyboardButton("⚡️ Почему ZCHK →", callback_data="show_why")],
         ]
         await query.edit_message_text(STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
     # Почему мы
     elif data == "show_why":
         kb = [
-            [InlineKeyboardButton("🚀 Протестировать платформу бесплатно", url=PLATFORM_URL)],
             [InlineKeyboardButton("📞 Записаться на звонок с Ярославом", url=CALENDLY_URL)],
-            [InlineKeyboardButton("💬 Написать менеджеру", url=MANAGER_URL)],
+            [InlineKeyboardButton("🚀 Разобраться самостоятельно на платформе", url=PLATFORM_URL)],
         ]
         await query.edit_message_text(WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -362,21 +359,32 @@ async def send_result(query, context, state, user):
     except Exception as e:
         logging.error(f"Warmup scheduling failed: {e}")
 
+    # Отправляем фото Ярослава
+    YAROSLAV_PHOTO = "https://zchkcapital.com/hero-photo.webp"
+    try:
+        await context.bot.send_photo(
+            chat_id=chat_id,
+            photo=YAROSLAV_PHOTO,
+            caption="*Ярослав Зайцев* — основатель ZCHK Capital",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Photo send failed: {e}")
+
     kb = [
-        [InlineKeyboardButton("👤 История Ярослава", callback_data="show_story")],
-        [InlineKeyboardButton("🚀 Протестировать платформу бесплатно", url=PLATFORM_URL)],
-        [InlineKeyboardButton("📞 Записаться на звонок", url=CALENDLY_URL)],
-        [InlineKeyboardButton("💬 Написать менеджеру", url=MANAGER_URL)],
-        [InlineKeyboardButton("🔄 Пройти заново", callback_data="restart")],
+        [InlineKeyboardButton("👤 История Ярослава →", callback_data="show_story")],
     ]
-    await query.edit_message_text(
-        f"✅ *{r['archetype']}*\n\n"
-        f"{r['desc']}\n\n"
-        f"_{r['pain']}_\n\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"*Рекомендация:*\n{r['offer']}\n\n"
-        f"📅 До 30 июня — триал *бесплатно*\n"
-        f"Без карты · Регистрация за 30 секунд",
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"✅ *{r['archetype']}*\n\n"
+            f"{r['desc']}\n\n"
+            f"_{r['pain']}_\n\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"*Рекомендация:*\n{r['offer']}\n\n"
+            f"📅 До 30 июня — триал *бесплатно*\n"
+            f"Без карты · Регистрация за 30 секунд"
+        ),
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(kb)
     )
