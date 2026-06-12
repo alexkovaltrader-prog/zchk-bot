@@ -645,7 +645,11 @@ async def send_result(query, context, user, result_key):
     except Exception as e:
         logging.error(f"Warmup schedule failed: {e}")
 
-    kb = [[InlineKeyboardButton("История Ярослава", callback_data="show_story")]]
+    kb = [
+        [InlineKeyboardButton("История Ярослава", callback_data="show_story")],
+        [InlineKeyboardButton("Записаться на звонок с Ярославом", url=CALENDLY_URL)],
+        [InlineKeyboardButton("Разобраться на платформе бесплатно", url=PLATFORM_URL)],
+    ]
 
     # Фото под трек + текст результата
     photo = await fetch_photo(f"{GITHUB_BASE}/{RESULT_PHOTOS[track]}")
