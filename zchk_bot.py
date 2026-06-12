@@ -388,18 +388,15 @@ async def _handle_menu_button(query, context, user, data):
         photo_cert = await fetch_photo(f"{GITHUB_BASE}/photo_seacrest_cert.jpg")
         if photo_cert:
             try:
-                await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=photo_cert,
-                    caption=WHY_US_TEXT,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup(kb)
-                )
+                await context.bot.send_photo(chat_id=chat_id, photo=photo_cert)
             except Exception as e:
                 logging.error(f"Why photo failed: {e}")
-                await context.bot.send_message(chat_id=chat_id, text=WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-        else:
-            await context.bot.send_message(chat_id=chat_id, text=WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=WHY_US_TEXT,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
 
     # Рестарт
     elif data == "restart":
