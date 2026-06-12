@@ -5,6 +5,7 @@ ZCHK Academy Bot — @zchkacademy_bot
   LEADS_CHAT_ID  — chat_id группы лидов (отрицательное число)
 """
 
+import os
 import logging
 import asyncio
 from datetime import datetime, timedelta
@@ -15,8 +16,8 @@ from telegram.ext import (
 )
 
 # ── КОНФИГ ──────────────────────────────────────────────────────────────────
-TOKEN          = "8883835887:AAFzMh_1AhW8E8ggwFnFhAANLZSbDCsdaXw"
-LEADS_CHAT_ID  = -5154204408
+TOKEN          = os.environ["BOT_TOKEN"]
+LEADS_CHAT_ID  = int(os.environ["LEADS_CHAT_ID"])
 MANAGER_URL    = "https://t.me/zchkcapitalmanager"
 PLATFORM_URL   = "https://zchkcapital.com/login.html"
 CALENDLY_URL   = "https://calendly.com/zaichikturit/founder-call"
