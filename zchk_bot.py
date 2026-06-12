@@ -8,6 +8,7 @@ ZCHK Academy Bot — @zchkacademy_bot
 import os
 import logging
 import asyncio
+import httpx
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -18,6 +19,19 @@ from telegram.ext import (
 # ── КОНФИГ ──────────────────────────────────────────────────────────────────
 TOKEN          = os.environ["BOT_TOKEN"]
 LEADS_CHAT_ID  = int(os.environ["LEADS_CHAT_ID"])
+
+GITHUB_BASE = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
+
+async def fetch_photo(url: str):
+    """Скачивает фото и возвращает bytes, или None при ошибке."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            return r.content
+    except Exception as e:
+        logging.error(f"fetch_photo failed {url}: {e}")
+        return None
 MANAGER_URL    = "https://t.me/zchkcapitalmanager"
 PLATFORM_URL   = "https://zchkcapital.com/login.html"
 CALENDLY_URL   = "https://calendly.com/zaichikturit/founder-call"
@@ -316,22 +330,26 @@ async def _handle_menu_button(query, context, user, data):
         ]
         # Сначала отправляем фото торгового счёта как доказательство цифр
         chat_id = query.message.chat_id
-        try:
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo="https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main/Frame_138.png",
-                caption="📊 Реальный торговый счёт — прибыль $420,000+"
-            )
-        except Exception as e:
-            logging.error(f"Story photo 1 failed: {e}")
-        try:
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo="https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main/%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png",
-                caption="💰 Сертификат выплаты Crypto Fund Trader — $9,300"
-            )
-        except Exception as e:
-            logging.error(f"Story photo 2 failed: {e}")
+        photo1 = await fetch_photo(f"{GITHUB_BASE}/Frame_138.png")
+        if photo1:
+            try:
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo1,
+                    caption="📊 Реальный торговый счёт — прибыль $420,000+"
+                )
+            except Exception as e:
+                logging.error(f"Story photo 1 failed: {e}")
+        photo2 = await fetch_photo(f"{GITHUB_BASE}/%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png")
+        if photo2:
+            try:
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo2,
+                    caption="💰 Сертификат выплаты Crypto Fund Trader — $9,300"
+                )
+            except Exception as e:
+                logging.error(f"Story photo 2 failed: {e}")
         await context.bot.send_message(
             chat_id=chat_id,
             text=STORY_TEXT,
@@ -413,16 +431,17 @@ async def send_result(query, context, state, user):
         logging.error(f"Warmup scheduling failed: {e}")
 
     # Отправляем фото Ярослава
-    YAROSLAV_PHOTO = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main/IMG_0101.JPG"
-    try:
-        await context.bot.send_photo(
-            chat_id=chat_id,
-            photo=YAROSLAV_PHOTO,
-            caption="*Ярослав Зайцев* — основатель ZCHK Capital",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logging.error(f"Photo send failed: {e}")
+    photo_bytes = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
+    if photo_bytes:
+        try:
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=photo_bytes,
+                caption="*Ярослав Зайцев* — основатель ZCHK Capital",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logging.error(f"Photo send failed: {e}")
 
     kb = [
         [InlineKeyboardButton("История Ярослава", callback_data="show_story")],
@@ -452,14 +471,16 @@ async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
 
     # День 2 (step=1) — добавляем фото отзыва студента
     if step == 1:
-        try:
-            await context.bot.send_photo(
-                data["chat_id"],
-                photo="https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png",
-                caption="💬 Студентка Дарина — взяла платформу 2 недели назад, уже зарабатывает"
-            )
-        except Exception as e:
-            logging.error(f"Warmup photo step 1 failed: {e}")
+        photo = await fetch_photo(f"{GITHUB_BASE}/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png")
+        if photo:
+            try:
+                await context.bot.send_photo(
+                    data["chat_id"],
+                    photo=photo,
+                    caption="💬 Студентка Дарина — взяла платформу 2 недели назад, уже зарабатывает"
+                )
+            except Exception as e:
+                logging.error(f"Warmup photo step 1 failed: {e}")
 
     try:
         await context.bot.send_message(
