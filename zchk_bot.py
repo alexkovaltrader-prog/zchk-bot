@@ -282,11 +282,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     welcome_text = (
         f"Привет, {user.first_name}\n\n"
-        f"Я бот ZCHK Academy — платформы по трейдингу. Готовим к проп-трейдингу и торговле личным капиталом.\n\n"
-        f"Пять вопросов — и ты получишь персональный разбор своей ситуации.\n\n"
+        f"Я Ярослав Зайцев — основатель ZCHK Academy и ZCHK Capital Fund, платформы по трейдингу.\n\n"
+        f"Выше ты видишь малую часть моих результатов — и меня, который сейчас задаст тебе 5 вопросов, чтобы я смог точнее подсказать дальнейшие шаги и ты смог делать такой же результат.\n\n"
         f"*Сколько ты уже в трейдинге?*"
     )
-    photo = await fetch_photo(f"{GITHUB_BASE}/IMG_7642.JPG")
+    photo = await fetch_photo(f"{GITHUB_BASE}/Frame%20307.png")
     if photo:
         await update.message.reply_photo(
             photo=photo,
