@@ -353,22 +353,6 @@ async def _handle_menu_button(query, context, user, data):
             [InlineKeyboardButton("Почему ZCHK", callback_data="show_why")],
         ]
         chat_id = query.message.chat_id
-        # Фото счёта + текст истории одним сообщением
-        photo1 = await fetch_photo(f"{GITHUB_BASE}/Frame_138.png")
-        if photo1:
-            try:
-                await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=photo1,
-                    caption=STORY_TEXT,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup(kb)
-                )
-            except Exception as e:
-                logging.error(f"Story photo failed: {e}")
-                await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-        else:
-            await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         # Фото Ярослава + текст истории одним сообщением
         photo_yar = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
         if photo_yar:
