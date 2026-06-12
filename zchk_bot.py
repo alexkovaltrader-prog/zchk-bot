@@ -328,34 +328,30 @@ async def _handle_menu_button(query, context, user, data):
         kb = [
             [InlineKeyboardButton("Почему ZCHK", callback_data="show_why")],
         ]
-        # Сначала отправляем фото торгового счёта как доказательство цифр
         chat_id = query.message.chat_id
+        # Фото счёта + текст истории одним сообщением
         photo1 = await fetch_photo(f"{GITHUB_BASE}/Frame_138.png")
         if photo1:
             try:
                 await context.bot.send_photo(
                     chat_id=chat_id,
                     photo=photo1,
-                    caption="📊 Реальный торговый счёт — прибыль $420,000+"
+                    caption=STORY_TEXT,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(kb)
                 )
             except Exception as e:
-                logging.error(f"Story photo 1 failed: {e}")
+                logging.error(f"Story photo failed: {e}")
+                await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        # Сертификат отдельным фото
         photo2 = await fetch_photo(f"{GITHUB_BASE}/%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png")
         if photo2:
             try:
-                await context.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=photo2,
-                    caption="💰 Сертификат выплаты Crypto Fund Trader — $9,300"
-                )
+                await context.bot.send_photo(chat_id=chat_id, photo=photo2, caption="💰 Сертификат выплаты $9,300 — Crypto Fund Trader")
             except Exception as e:
-                logging.error(f"Story photo 2 failed: {e}")
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=STORY_TEXT,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(kb)
-        )
+                logging.error(f"Cert photo failed: {e}")
 
     # Почему мы
     elif data == "show_why":
@@ -430,33 +426,31 @@ async def send_result(query, context, state, user):
     except Exception as e:
         logging.error(f"Warmup scheduling failed: {e}")
 
-    # Отправляем фото Ярослава
+    kb = [
+        [InlineKeyboardButton("История Ярослава", callback_data="show_story")],
+    ]
+    result_text = (
+        f"*{r['archetype']}*\n\n"
+        f"{r['desc']}\n\n"
+        f"{r['pain']}\n\n"
+        f"{r['offer']}"
+    )
+    # Фото Ярослава + текст результата одним сообщением
     photo_bytes = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
     if photo_bytes:
         try:
             await context.bot.send_photo(
                 chat_id=chat_id,
                 photo=photo_bytes,
-                caption="*Ярослав Зайцев* — основатель ZCHK Capital",
-                parse_mode="Markdown"
+                caption=result_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(kb)
             )
         except Exception as e:
             logging.error(f"Photo send failed: {e}")
-
-    kb = [
-        [InlineKeyboardButton("История Ярослава", callback_data="show_story")],
-    ]
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=(
-            f"*{r['archetype']}*\n\n"
-            f"{r['desc']}\n\n"
-            f"{r['pain']}\n\n"
-            f"{r['offer']}"
-        ),
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+            await context.bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await context.bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
