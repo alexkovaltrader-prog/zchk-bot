@@ -416,11 +416,22 @@ async def send_question(query, context, state):
     progress = "▓" * step_num + "░" * (total - step_num)
 
     kb = [[InlineKeyboardButton(opt, callback_data=f"ans_{i}")] for i, opt in enumerate(q_data["opts"])]
-    await query.edit_message_text(
-        f"`{progress}` Вопрос {step_num}/{total}\n\n*{q_data['q']}*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    text = f"`{progress}` Вопрос {step_num}/{total}\n\n*{q_data['q']}*"
+
+    # Пробуем редактировать — если не выходит (фото-сообщение), отправляем новое
+    try:
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+    except Exception:
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
 
 async def send_result(query, context, state, user):
     track_key = state["track"]
