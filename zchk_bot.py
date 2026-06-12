@@ -70,9 +70,7 @@ STORY_TEXT = """*Меня зовут Ярослав Зайцев*
 
 Я не пошёл на очередные курсы, где обещают золотые горы. Читал книги, смотрел семинары западных университетов об экономике, изучал как реально устроены рынки — не как это продают в интернете. Это заняло годы. Но именно это дало понимание, которого нет у большинства трейдеров.
 
-$9,300 — первая крупная выплата от проп-фирмы
-$10,396 — следующая выплата месяц спустя
-$420,000+ — общая прибыль на реальном счёте"""
+"""
 
 WHY_US_TEXT = """*Почему ZCHK, а не другие*
 
@@ -371,13 +369,6 @@ async def _handle_menu_button(query, context, user, data):
                 await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         else:
             await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-        # Фото Ярослава после текста истории
-        photo_yar = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
-        if photo_yar:
-            try:
-                await context.bot.send_photo(chat_id=chat_id, photo=photo_yar, caption="Ярослав Зайцев — основатель ZCHK Capital")
-            except Exception as e:
-                logging.error(f"Yaroslav photo failed: {e}")
         # Сертификат отдельным фото
         photo2 = await fetch_photo(f"{GITHUB_BASE}/%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png")
         if photo2:
