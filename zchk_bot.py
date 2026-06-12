@@ -1,7 +1,8 @@
 """
 ZCHK Academy Bot — @zchkacademy_bot
-Токен: 8883835887:AAFzMh_1AhW8E8ggwFnFhAANLZSbDCsdaXw
-Группа лидов: -5154204408
+Токен и chat_id хранятся в переменных окружения Railway:
+  BOT_TOKEN      — токен бота
+  LEADS_CHAT_ID  — chat_id группы лидов (отрицательное число)
 """
 
 import logging
