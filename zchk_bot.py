@@ -23,12 +23,26 @@ LEADS_CHAT_ID  = int(os.environ["LEADS_CHAT_ID"])
 GITHUB_BASE = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
 
 async def fetch_photo(url: str):
-    """Скачивает фото и возвращает bytes, или None при ошибке."""
+    """Скачивает фото, сжимает если > 5MB, возвращает bytes или None."""
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             r = await client.get(url)
             r.raise_for_status()
-            return r.content
+            data = r.content
+        # Сжимаем если больше 5MB
+        if len(data) > 5 * 1024 * 1024:
+            from PIL import Image
+            import io
+            img = Image.open(io.BytesIO(data))
+            img = img.convert("RGB")
+            # Уменьшаем если очень большое
+            max_side = 1280
+            if max(img.size) > max_side:
+                img.thumbnail((max_side, max_side), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=75)
+            data = buf.getvalue()
+        return data
     except Exception as e:
         logging.error(f"fetch_photo failed {url}: {e}")
         return None
