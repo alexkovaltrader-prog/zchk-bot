@@ -482,19 +482,32 @@ async def send_result(query, context, state, user):
         f"{r['pain']}\n\n"
         f"{r['offer']}"
     )
-    # Фото под результат трека
+    # Фото + текст результата одним сообщением (caption)
     result_photo = await fetch_photo(f"{GITHUB_BASE}/{RESULT_PHOTOS[track_key]}")
     if result_photo:
         try:
-            await context.bot.send_photo(chat_id=chat_id, photo=result_photo)
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=result_photo,
+                caption=result_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
         except Exception as e:
             logging.error(f"Result photo failed: {e}")
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=result_text,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=result_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+    else:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=result_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
 
 async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
