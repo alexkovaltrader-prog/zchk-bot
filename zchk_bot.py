@@ -8,6 +8,9 @@ ZCHK Academy Bot,@zchkacademy_bot
 import os
 import logging
 import asyncio
+import time
+import hashlib
+import uuid
 import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -17,11 +20,104 @@ from telegram.ext import (
 
 TOKEN         = os.environ["BOT_TOKEN"]
 LEADS_CHAT_ID = int(os.environ["LEADS_CHAT_ID"])
+
+# Meta Conversions API
+# Обязательные переменные для отправки событий в Meta:
+#   META_PIXEL_ID       = ID пикселя / набора данных Meta
+#   META_ACCESS_TOKEN   = токен доступа Conversions API
+# Необязательные:
+#   META_TEST_EVENT_CODE = код тестового события из Events Manager, например TEST41220
+#   META_API_VERSION     = версия Graph API, по умолчанию v20.0
+META_PIXEL_ID       = os.getenv("META_PIXEL_ID", "1551677006585861")
+META_ACCESS_TOKEN   = os.getenv("META_ACCESS_TOKEN", "")
+META_TEST_EVENT_CODE = os.getenv("META_TEST_EVENT_CODE", "")
+META_API_VERSION    = os.getenv("META_API_VERSION", "v20.0")
+
 GITHUB_BASE   = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
 PLATFORM_URL  = "https://zchkcapital.com/login.html"
 CALENDLY_URL  = "https://calendly.com/zaichikturit/founder-call"
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+# ── META CONVERSIONS API ────────────────────────────────────────────────────
+def sha256(value: str) -> str:
+    """Meta требует user_data в хешированном виде для external_id/email/phone."""
+    return hashlib.sha256(value.strip().lower().encode("utf-8")).hexdigest()
+
+
+def get_source_from_context(context: ContextTypes.DEFAULT_TYPE) -> str:
+    """Забираем параметр после /start. Например: /start landing1."""
+    try:
+        if context.args and len(context.args) > 0:
+            return context.args[0]
+    except Exception:
+        pass
+    return "direct"
+
+
+def build_user_data(user) -> dict:
+    """
+    Идентификаторы пользователя для Meta.
+    В Telegram у нас нет fbp/fbc/cookie, поэтому основной стабильный ключ — external_id.
+    """
+    user_data = {
+        "external_id": sha256(str(user.id)),
+    }
+    return user_data
+
+
+async def send_meta_event(
+    event_name: str,
+    user,
+    source: str = "direct",
+    custom_data: dict | None = None,
+):
+    """
+    Отправка события из Telegram-бота в Meta Conversions API.
+
+    Важно:
+    - Это не браузерный Pixel.
+    - Это серверное событие из бота.
+    - Если META_ACCESS_TOKEN не задан, событие не отправится, но бот продолжит работать.
+    """
+    if not META_ACCESS_TOKEN:
+        logging.warning(f"Meta CAPI skipped: META_ACCESS_TOKEN is empty. Event={event_name}")
+        return None
+
+    event = {
+        "event_name": event_name,
+        "event_time": int(time.time()),
+        "action_source": "chat",
+        "event_id": f"{event_name}_{user.id}_{int(time.time())}_{uuid.uuid4().hex[:8]}",
+        "user_data": build_user_data(user),
+        "custom_data": {
+            "source": source,
+            "telegram_id": str(user.id),
+            "telegram_username": user.username or "",
+            "telegram_name": user.full_name or "",
+            **(custom_data or {}),
+        },
+    }
+
+    payload = {"data": [event]}
+    if META_TEST_EVENT_CODE:
+        payload["test_event_code"] = META_TEST_EVENT_CODE
+
+    url = f"https://graph.facebook.com/{META_API_VERSION}/{META_PIXEL_ID}/events"
+    params = {"access_token": META_ACCESS_TOKEN}
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(url, params=params, json=payload)
+            if response.status_code >= 400:
+                logging.error(f"Meta CAPI error {response.status_code}: {response.text}")
+            else:
+                logging.info(f"Meta CAPI sent: {event_name} | source={source}")
+            return response.json()
+    except Exception as e:
+        logging.error(f"Meta CAPI request failed: {e}")
+        return None
+
 
 # ── ФОТО ДЛЯ РЕЗУЛЬТАТОВ ────────────────────────────────────────────────────
 RESULT_PHOTOS = {
@@ -847,7 +943,22 @@ def get_lock(uid):
 # ── ХЭНДЛЕРЫ ────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    set_state(user.id, {})
+    source = get_source_from_context(context)
+
+    set_state(user.id, {
+        "source": source,
+        "path": [],
+        "quiz_started": False,
+        "quiz_completed": False,
+    })
+
+    await send_meta_event(
+        "BotStarted",
+        user,
+        source,
+        custom_data={"bot": "zchkacademy_bot"}
+    )
+
     q = QUESTIONS["start"]
     kb = [[InlineKeyboardButton(opt, callback_data=f"q:start:{i}")] for i, (opt, _) in enumerate(q["opts"])]
     welcome = (
@@ -878,6 +989,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_story(query, context)
     elif data == "show_why":
         await handle_why(query, context)
+    elif data == "cta:call":
+        await handle_cta_call(query, context, user)
+    elif data == "cta:platform":
+        await handle_cta_platform(query, context, user)
     elif data == "restart":
         set_state(user.id, {})
         await start_from_callback(query, context, user)
@@ -886,7 +1001,30 @@ async def handle_question(query, context, user, data):
     _, q_key, idx_str = data.split(":")
     idx = int(idx_str)
     q   = QUESTIONS[q_key]
-    _, next_key = q["opts"][idx]
+    selected_text, next_key = q["opts"][idx]
+
+    state = get_state(user.id)
+    source = state.get("source", "direct")
+
+    if not state.get("quiz_started"):
+        state["quiz_started"] = True
+        await send_meta_event(
+            "QuizStarted",
+            user,
+            source,
+            custom_data={
+                "first_question": q_key,
+                "first_answer": selected_text,
+            }
+        )
+
+    state.setdefault("path", []).append({
+        "question_key": q_key,
+        "question": q.get("text", ""),
+        "answer": selected_text,
+        "next_key": next_key,
+    })
+    set_state(user.id, state)
 
     if next_key.startswith("result_"):
         await send_result(query, context, user, next_key)
@@ -902,6 +1040,44 @@ async def send_result(query, context, user, result_key):
     r      = RESULTS[result_key]
     track  = r["track"]
     chat_id = query.message.chat_id
+
+    state = get_state(user.id)
+    source = state.get("source", "direct")
+    path = state.get("path", [])
+    temperature = "hot" if result_key.endswith("_hot") else "cold"
+
+    state["quiz_completed"] = True
+    state["result_key"] = result_key
+    state["track"] = track
+    state["temperature"] = temperature
+    set_state(user.id, state)
+
+    await send_meta_event(
+        "QuizCompleted",
+        user,
+        source,
+        custom_data={
+            "result_key": result_key,
+            "track": track,
+            "temperature": temperature,
+            "answers_count": len(path),
+            "path": " > ".join([p.get("answer", "") for p in path])[:900],
+        }
+    )
+
+    # Стандартное событие Lead отправляем только после завершения квиза.
+    # Это уже не просто клик по Telegram, а квалифицированный лид.
+    await send_meta_event(
+        "Lead",
+        user,
+        source,
+        custom_data={
+            "lead_type": "quiz_completed",
+            "result_key": result_key,
+            "track": track,
+            "temperature": temperature,
+        }
+    )
 
     # Уведомление в группу лидов
     try:
@@ -928,8 +1104,8 @@ async def send_result(query, context, user, result_key):
 
     kb = [
         [InlineKeyboardButton("История Ярослава", callback_data="show_story")],
-        [InlineKeyboardButton("Записаться на звонок с Ярославом", url=CALENDLY_URL)],
-        [InlineKeyboardButton("Разобраться на платформе бесплатно", url=PLATFORM_URL)],
+        [InlineKeyboardButton("Записаться на звонок с Ярославом", callback_data="cta:call")],
+        [InlineKeyboardButton("Разобраться на платформе бесплатно", callback_data="cta:platform")],
     ]
 
     # Фото под трек + текст результата
@@ -953,6 +1129,54 @@ async def send_result(query, context, user, result_key):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(kb)
     )
+
+async def handle_cta_call(query, context, user):
+    state = get_state(user.id)
+    source = state.get("source", "direct")
+
+    await send_meta_event(
+        "CallIntent",
+        user,
+        source,
+        custom_data={
+            "result_key": state.get("result_key", ""),
+            "track": state.get("track", ""),
+            "temperature": state.get("temperature", ""),
+            "destination": CALENDLY_URL,
+        }
+    )
+
+    kb = [[InlineKeyboardButton("Открыть календарь для записи", url=CALENDLY_URL)]]
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="Отлично. Ниже ссылка на календарь. Выбери удобное время для 10-минутного звонка с Ярославом.",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
+
+
+async def handle_cta_platform(query, context, user):
+    state = get_state(user.id)
+    source = state.get("source", "direct")
+
+    await send_meta_event(
+        "RegistrationIntent",
+        user,
+        source,
+        custom_data={
+            "result_key": state.get("result_key", ""),
+            "track": state.get("track", ""),
+            "temperature": state.get("temperature", ""),
+            "destination": PLATFORM_URL,
+        }
+    )
+
+    kb = [[InlineKeyboardButton("Открыть платформу", url=PLATFORM_URL)]]
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="Ниже ссылка на платформу. Зарегистрируйся и забери бесплатный триал-доступ без карты.",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
+
 
 async def handle_story(query, context):
     kb = [[InlineKeyboardButton("Почему ZCHK", callback_data="show_why")]]
@@ -992,8 +1216,8 @@ async def start_from_callback(query, context, user):
 async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
     data = context.job.data
     kb = [
-        [InlineKeyboardButton("Протестировать платформу бесплатно", url=PLATFORM_URL)],
-        [InlineKeyboardButton("Записаться на звонок с Ярославом",   url=CALENDLY_URL)],
+        [InlineKeyboardButton("Протестировать платформу бесплатно", callback_data="cta:platform")],
+        [InlineKeyboardButton("Записаться на звонок с Ярославом",   callback_data="cta:call")],
     ]
     if data["step"] == 1:
         photo = await fetch_photo(f"{GITHUB_BASE}/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png")
