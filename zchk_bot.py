@@ -222,12 +222,18 @@ WARMUP = {
 
 # ── ХРАНИЛИЩЕ СОСТОЯНИЙ ──────────────────────────────────────────────────────
 user_states = {}
+user_locks = {}  # лок на юзера — защита от двойных нажатий
 
 def get_state(user_id):
     return user_states.get(user_id, {})
 
 def set_state(user_id, state):
     user_states[user_id] = state
+
+def get_lock(user_id):
+    if user_id not in user_locks:
+        user_locks[user_id] = asyncio.Lock()
+    return user_locks[user_id]
 
 # ── ХЭНДЛЕРЫ ────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -253,6 +259,19 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user = update.effective_user
     data = query.data
+
+    # Для ответов на вопросы используем лок — защита от двойных нажатий
+    if data.startswith("ans_") or data.startswith("track_"):
+        lock = get_lock(user.id)
+        if lock.locked():
+            # Уже обрабатывается — игнорируем повторное нажатие
+            return
+        async with lock:
+            await _handle_quiz_button(query, context, user, data)
+    else:
+        await _handle_menu_button(query, context, user, data)
+
+async def _handle_quiz_button(query, context, user, data):
     state = get_state(user.id)
 
     # Выбор трека
@@ -265,12 +284,17 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("ans_"):
         ans_idx = int(data.replace("ans_", ""))
         if not state or "track" not in state:
-            # state потерян — просим начать заново
             await query.edit_message_text(
                 "Что-то пошло не так. Напиши /start чтобы начать заново.",
                 parse_mode="Markdown"
             )
             return
+
+        expected_step = state["step"]
+        # Защита от повторного нажатия на уже пройденный вопрос
+        if len(state["answers"]) != expected_step:
+            return
+
         state["answers"].append(ans_idx)
         state["step"] += 1
         set_state(user.id, state)
@@ -281,8 +305,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await send_result(query, context, state, user)
 
+async def _handle_menu_button(query, context, user, data):
+
     # История Ярослава
-    elif data == "show_story":
+    if data == "show_story":
         kb = [
             [InlineKeyboardButton("Почему ZCHK", callback_data="show_why")],
         ]
