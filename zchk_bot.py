@@ -248,6 +248,13 @@ WARMUP = {
     ]
 }
 
+# ── ФОТО ДЛЯ РЕЗУЛЬТАТОВ ────────────────────────────────────────────────────
+RESULT_PHOTOS = {
+    "novice":     "photo_como_lake.jpg",
+    "beginner":   "Frame_138.png",
+    "experienced": "%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png",
+}
+
 # ── ХРАНИЛИЩЕ СОСТОЯНИЙ ──────────────────────────────────────────────────────
 user_states = {}
 user_locks = {}  # лок на юзера — защита от двойных нажатий
@@ -475,6 +482,13 @@ async def send_result(query, context, state, user):
         f"{r['pain']}\n\n"
         f"{r['offer']}"
     )
+    # Фото под результат трека
+    result_photo = await fetch_photo(f"{GITHUB_BASE}/{RESULT_PHOTOS[track_key]}")
+    if result_photo:
+        try:
+            await context.bot.send_photo(chat_id=chat_id, photo=result_photo)
+        except Exception as e:
+            logging.error(f"Result photo failed: {e}")
     await context.bot.send_message(
         chat_id=chat_id,
         text=result_text,
