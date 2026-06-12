@@ -369,20 +369,22 @@ async def _handle_menu_button(query, context, user, data):
                 await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         else:
             await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-        # Фото Ярослава + сертификат альбомом без подписей
-        from telegram import InputMediaPhoto
+        # Фото Ярослава + текст истории одним сообщением
         photo_yar = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
-        photo_cert = await fetch_photo(f"{GITHUB_BASE}/%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png")
-        media = []
         if photo_yar:
-            media.append(InputMediaPhoto(media=photo_yar))
-        if photo_cert:
-            media.append(InputMediaPhoto(media=photo_cert))
-        if media:
             try:
-                await context.bot.send_media_group(chat_id=chat_id, media=media)
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_yar,
+                    caption=STORY_TEXT,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
             except Exception as e:
-                logging.error(f"Media group failed: {e}")
+                logging.error(f"Story photo failed: {e}")
+                await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
     # Почему мы
     elif data == "show_why":
@@ -390,7 +392,22 @@ async def _handle_menu_button(query, context, user, data):
             [InlineKeyboardButton("Записаться на звонок с Ярославом", url=CALENDLY_URL)],
             [InlineKeyboardButton("Разобраться самостоятельно на платформе", url=PLATFORM_URL)],
         ]
-        await query.edit_message_text(WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        chat_id = query.message.chat_id
+        photo_cert = await fetch_photo(f"{GITHUB_BASE}/photo_seacrest_cert.jpg")
+        if photo_cert:
+            try:
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo_cert,
+                    caption=WHY_US_TEXT,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
+            except Exception as e:
+                logging.error(f"Why photo failed: {e}")
+                await context.bot.send_message(chat_id=chat_id, text=WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
     # Рестарт
     elif data == "restart":
