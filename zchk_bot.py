@@ -369,13 +369,20 @@ async def _handle_menu_button(query, context, user, data):
                 await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
         else:
             await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-        # Сертификат отдельным фото
-        photo2 = await fetch_photo(f"{GITHUB_BASE}/%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png")
-        if photo2:
+        # Фото Ярослава + сертификат альбомом без подписей
+        from telegram import InputMediaPhoto
+        photo_yar = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
+        photo_cert = await fetch_photo(f"{GITHUB_BASE}/%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png")
+        media = []
+        if photo_yar:
+            media.append(InputMediaPhoto(media=photo_yar))
+        if photo_cert:
+            media.append(InputMediaPhoto(media=photo_cert))
+        if media:
             try:
-                await context.bot.send_photo(chat_id=chat_id, photo=photo2, caption="💰 Сертификат выплаты $9,300 — Crypto Fund Trader")
+                await context.bot.send_media_group(chat_id=chat_id, media=media)
             except Exception as e:
-                logging.error(f"Cert photo failed: {e}")
+                logging.error(f"Media group failed: {e}")
 
     # Почему мы
     elif data == "show_why":
@@ -470,22 +477,12 @@ async def send_result(query, context, state, user):
         f"{r['pain']}\n\n"
         f"{r['offer']}"
     )
-    # Фото Ярослава + текст результата одним сообщением
-    photo_bytes = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
-    if photo_bytes:
-        try:
-            await context.bot.send_photo(
-                chat_id=chat_id,
-                photo=photo_bytes,
-                caption=result_text,
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(kb)
-            )
-        except Exception as e:
-            logging.error(f"Photo send failed: {e}")
-            await context.bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-    else:
-        await context.bot.send_message(chat_id=chat_id, text=result_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=result_text,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
 
 async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
