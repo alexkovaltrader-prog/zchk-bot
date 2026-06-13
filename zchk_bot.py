@@ -788,8 +788,8 @@ async def handle_story(query, context):
 
 async def handle_why(query, context):
     kb = [
-        [InlineKeyboardButton("Записаться на звонок с Ярославом",       url=CALENDLY_URL)],
-        [InlineKeyboardButton("Разобраться самостоятельно на платформе", url=PLATFORM_URL)],
+        [InlineKeyboardButton("Записаться на звонок с Ярославом",       callback_data="cta:call")],
+        [InlineKeyboardButton("Разобраться самостоятельно на платформе", callback_data="cta:platform")],
     ]
     chat_id = query.message.chat_id
     photo   = await fetch_photo(f"{GITHUB_BASE}/photo_seacrest_cert.jpg")
