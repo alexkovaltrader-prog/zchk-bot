@@ -26,6 +26,12 @@ META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN", "")
 META_TEST_EVENT_CODE = os.getenv("META_TEST_EVENT_CODE", "")
 META_API_VERSION     = os.getenv("META_API_VERSION", "v20.0")
 
+# Supabase — для расшифровки коротких session_id из /start payload
+# (полные UTM/fbp/fbc данные лежат в таблице landing_sessions, чтобы
+# не пихать их в сам deep-link, который Telegram режет по символам)
+SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+
 GITHUB_BASE  = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
 PLATFORM_URL = "https://zchkcapital.com/login.html"
 CALENDLY_URL = "https://calendly.com/zaichikturit/founder-call"
@@ -47,10 +53,12 @@ def get_source_from_context(context: ContextTypes.DEFAULT_TYPE) -> str:
     return "direct"
 
 
-def parse_payload(source: str) -> dict:
+def parse_payload_legacy(source: str) -> dict:
     """
-    Разбираем payload из /start:
+    Старый формат payload из /start (до фикса с Supabase):
     landing1__utm_source__utm_campaign__utm_adset__utm_ad__fbp__fbc
+    Точки в fbc ломали deep-link для рекламного трафика — оставлено
+    только как фоллбэк для совместимости со старыми ссылками.
     """
     parts = source.split("__")
     return {
@@ -62,6 +70,52 @@ def parse_payload(source: str) -> dict:
         "fbp":          parts[5] if len(parts) > 5 and parts[5] != "none" else None,
         "fbc":          parts[6] if len(parts) > 6 and parts[6] != "none" else None,
     }
+
+
+async def resolve_payload(source: str) -> dict:
+    """
+    Новый формат: "s1_<session_id>" — короткий ID без точек, безопасный
+    для Telegram deep-link. Полные UTM/fbp/fbc подтягиваются из таблицы
+    landing_sessions в Supabase. Если это старый формат (есть "__") или
+    Supabase недоступен/строка не найдена — падаем на legacy-парсинг.
+    """
+    if source.startswith("s1_") and SUPABASE_URL and SUPABASE_SERVICE_KEY:
+        session_id = source[len("s1_"):]
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                resp = await client.get(
+                    f"{SUPABASE_URL}/rest/v1/landing_sessions",
+                    params={
+                        "id": f"eq.{session_id}",
+                        "select": "utm_source,utm_campaign,utm_adset,utm_ad,fbp,fbc",
+                    },
+                    headers={
+                        "apikey": SUPABASE_SERVICE_KEY,
+                        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    },
+                )
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows:
+                    row = rows[0]
+                    return {
+                        "landing":      "landing1",
+                        "utm_source":   row.get("utm_source") or "direct",
+                        "utm_campaign": row.get("utm_campaign") or "none",
+                        "utm_adset":    row.get("utm_adset") or "none",
+                        "utm_ad":       row.get("utm_ad") or "none",
+                        "fbp":          row.get("fbp") or None,
+                        "fbc":          row.get("fbc") or None,
+                    }
+            logging.warning(f"landing_sessions lookup miss for id={session_id}, status={resp.status_code}")
+        except Exception as e:
+            logging.error(f"landing_sessions lookup failed: {e}")
+        # сессия не найдена / Supabase недоступен — честный "direct", не падаем на мусор
+        return {
+            "landing": "landing1", "utm_source": "direct", "utm_campaign": "none",
+            "utm_adset": "none", "utm_ad": "none", "fbp": None, "fbc": None,
+        }
+    return parse_payload_legacy(source)
 
 
 def build_user_data(user, payload: dict | None = None) -> dict:
@@ -92,7 +146,7 @@ async def send_meta_event(
         logging.warning(f"Meta CAPI skipped: META_ACCESS_TOKEN is empty. Event={event_name}")
         return None
 
-    parsed = payload or parse_payload(source)
+    parsed = payload or parse_payload_legacy(source)
 
     event = {
         "event_name": event_name,
@@ -541,7 +595,7 @@ def get_lock(uid):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     source = get_source_from_context(context)
-    parsed = parse_payload(source)
+    parsed = await resolve_payload(source)
 
     set_state(user.id, {
         "source":         source,
