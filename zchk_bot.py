@@ -739,9 +739,10 @@ async def send_result(query, context, user, result_key):
     )
 
     try:
+        utm_display = (payload or {}).get("utm_source", "direct")
         await context.bot.send_message(
             LEADS_CHAT_ID,
-            f"🔥 *Новый лид*\n\n👤 {user.full_name} (@{user.username or 'нет'})\n🎯 Сегмент: `{result_key}`\n📡 UTM: `{source}`",
+            f"🔥 *Новый лид*\n\n👤 {user.full_name} (@{user.username or 'нет'})\n🎯 Сегмент: `{result_key}`\n📡 UTM: `{utm_display}`",
             parse_mode="Markdown"
         )
     except Exception as e:
