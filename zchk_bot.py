@@ -21,14 +21,11 @@ from telegram.ext import (
 TOKEN         = os.environ["BOT_TOKEN"]
 LEADS_CHAT_ID = int(os.environ["LEADS_CHAT_ID"])
 
-META_PIXEL_ID        = os.getenv("META_PIXEL_ID", "1551677006585861")
+META_PIXEL_ID        = os.getenv("META_PIXEL_ID", "1327166909546164")
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN", "")
-META_TEST_EVENT_CODE = os.getenv("META_TEST_EVENT_CODE", "")
 META_API_VERSION     = os.getenv("META_API_VERSION", "v20.0")
 
 # Supabase — для расшифровки коротких session_id из /start payload
-# (полные UTM/fbp/fbc данные лежат в таблице landing_sessions, чтобы
-# не пихать их в сам deep-link, который Telegram режет по символам)
 SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
@@ -54,12 +51,6 @@ def get_source_from_context(context: ContextTypes.DEFAULT_TYPE) -> str:
 
 
 def parse_payload_legacy(source: str) -> dict:
-    """
-    Старый формат payload из /start (до фикса с Supabase):
-    landing1__utm_source__utm_campaign__utm_adset__utm_ad__fbp__fbc
-    Точки в fbc ломали deep-link для рекламного трафика — оставлено
-    только как фоллбэк для совместимости со старыми ссылками.
-    """
     parts = source.split("__")
     return {
         "landing":      parts[0] if len(parts) > 0 else "unknown",
@@ -69,16 +60,11 @@ def parse_payload_legacy(source: str) -> dict:
         "utm_ad":       parts[4] if len(parts) > 4 else "none",
         "fbp":          parts[5] if len(parts) > 5 and parts[5] != "none" else None,
         "fbc":          parts[6] if len(parts) > 6 and parts[6] != "none" else None,
+        "user_agent":   None,
     }
 
 
 async def resolve_payload(source: str) -> dict:
-    """
-    Новый формат: "s1_<session_id>" — короткий ID без точек, безопасный
-    для Telegram deep-link. Полные UTM/fbp/fbc подтягиваются из таблицы
-    landing_sessions в Supabase. Если это старый формат (есть "__") или
-    Supabase недоступен/строка не найдена — падаем на legacy-парсинг.
-    """
     if source.startswith("s1_") and SUPABASE_URL and SUPABASE_SERVICE_KEY:
         session_id = source[len("s1_"):]
         try:
@@ -87,7 +73,7 @@ async def resolve_payload(source: str) -> dict:
                     f"{SUPABASE_URL}/rest/v1/landing_sessions",
                     params={
                         "id": f"eq.{session_id}",
-                        "select": "utm_source,utm_campaign,utm_adset,utm_ad,fbp,fbc",
+                        "select": "utm_source,utm_campaign,utm_adset,utm_ad,fbp,fbc,user_agent",
                     },
                     headers={
                         "apikey": SUPABASE_SERVICE_KEY,
@@ -106,24 +92,19 @@ async def resolve_payload(source: str) -> dict:
                         "utm_ad":       row.get("utm_ad") or "none",
                         "fbp":          row.get("fbp") or None,
                         "fbc":          row.get("fbc") or None,
+                        "user_agent":   row.get("user_agent") or None,
                     }
             logging.warning(f"landing_sessions lookup miss for id={session_id}, status={resp.status_code}")
         except Exception as e:
             logging.error(f"landing_sessions lookup failed: {e}")
-        # сессия не найдена / Supabase недоступен — честный "direct", не падаем на мусор
         return {
             "landing": "landing1", "utm_source": "direct", "utm_campaign": "none",
-            "utm_adset": "none", "utm_ad": "none", "fbp": None, "fbc": None,
+            "utm_adset": "none", "utm_ad": "none", "fbp": None, "fbc": None, "user_agent": None,
         }
     return parse_payload_legacy(source)
 
 
 def build_user_data(user, payload: dict | None = None) -> dict:
-    """
-    Идентификаторы пользователя для Meta CAPI.
-    fbp и fbc передаются с лендинга через /start payload — сшивают
-    браузерного пользователя с серверными событиями из бота.
-    """
     user_data = {
         "external_id": sha256(str(user.id)),
     }
@@ -132,6 +113,8 @@ def build_user_data(user, payload: dict | None = None) -> dict:
             user_data["fbp"] = payload["fbp"]
         if payload.get("fbc"):
             user_data["fbc"] = payload["fbc"]
+        if payload.get("user_agent"):
+            user_data["client_user_agent"] = payload["user_agent"]
     return user_data
 
 
@@ -169,8 +152,6 @@ async def send_meta_event(
     }
 
     meta_payload = {"data": [event]}
-    if META_TEST_EVENT_CODE:
-        meta_payload["test_event_code"] = META_TEST_EVENT_CODE
 
     url = f"https://graph.facebook.com/{META_API_VERSION}/{META_PIXEL_ID}/events"
     params = {"access_token": META_ACCESS_TOKEN}
@@ -181,7 +162,7 @@ async def send_meta_event(
             if response.status_code >= 400:
                 logging.error(f"Meta CAPI error {response.status_code}: {response.text}")
             else:
-                logging.info(f"Meta CAPI sent: {event_name} | utm_source={parsed.get('utm_source')} | fbp={'yes' if parsed.get('fbp') else 'no'}")
+                logging.info(f"Meta CAPI sent: {event_name} | utm_source={parsed.get('utm_source')} | fbp={'yes' if parsed.get('fbp') else 'no'} | ua={'yes' if parsed.get('user_agent') else 'no'}")
             return response.json()
     except Exception as e:
         logging.error(f"Meta CAPI request failed: {e}")
@@ -723,8 +704,6 @@ async def send_result(query, context, user, result_key):
         payload=payload,
     )
 
-    # Lead из бота — промежуточный (дошёл до конца квиза)
-    # Финальный Lead фиксируется пикселем на dashboard.html
     await send_meta_event(
         "QuizLead",
         user,
