@@ -627,6 +627,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_why(query, context)
     elif data == "show_platform_tour":
         await handle_platform_tour(query, context)
+    elif data == "show_reviews":
+        await handle_reviews(query, context)
     elif data == "cta:call":
         await handle_cta_call(query, context, user)
     elif data == "cta:platform":
@@ -829,7 +831,7 @@ async def handle_platform_tour(query, context):
     tour_steps = [
         {
             "photo": "screen_login.png",
-            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль — и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
+            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
         },
         {
             "photo": "screen_dasbord.png",
@@ -837,7 +839,7 @@ async def handle_platform_tour(query, context):
         },
         {
             "photo": "screen_library.png",
-            "text": "*03 — Библиотека видеоуроков — 24 лекции*\n\nЭто ядро обучения. 24 урока разбиты на 5 блоков — от основ до проп-стратегий. Каждый урок: сначала теория, затем практика на реальном графике.",
+            "text": "*03 — Библиотека видеоуроков 24 лекции*\n\nЭто ядро обучения. 24 лекции разбиты на 5 блоков, от основ до реальной прибыли. Каждый урок: сначала теория, затем практика на реальном графике + домашнее задание.",
         },
         {
             "photo": "screen_lesson.png",
@@ -849,7 +851,7 @@ async def handle_platform_tour(query, context):
         },
         {
             "photo": "screen_checklist.png",
-            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист — пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
+            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
         },
         {
             "photo": "screen_articles.png",
@@ -857,7 +859,7 @@ async def handle_platform_tour(query, context):
         },
         {
             "photo": "screen_metodichka.png",
-            "text": "*06 — Методичка — 6 частей с нуля до системы*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология — всё структурировано и по порядку.",
+            "text": "*06 — Методичка 6 частей с нуля до системной прибыли*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология. Всё структурировано и по порядку.",
         },
     ]
 
@@ -875,12 +877,40 @@ async def handle_platform_tour(query, context):
                 logging.error(f"Platform tour text failed: {e}")
 
     kb = [
+        [InlineKeyboardButton("Отзывы студентов",                        callback_data="show_reviews")],
         [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
         [InlineKeyboardButton("Записаться на звонок с Ярославом",        callback_data="cta:call")],
     ]
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Это всё доступно сразу после регистрации. Триал бесплатно, без карты.",
+        text="Это всё доступно сразу после регистрации. Триал дает возможность прикоснуться к продукту, посмотреть лекции и убедиться в качестве материала. Дальше сам решишь!",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
+
+
+async def handle_reviews(query, context):
+    chat_id = query.message.chat_id
+
+    review_photos = [
+        "photo_2026-06-09_18-03-29.jpg",
+        "%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png",
+    ]
+
+    for photo_name in review_photos:
+        photo = await fetch_photo(f"{GITHUB_BASE}/{photo_name}")
+        if photo:
+            try:
+                await context.bot.send_photo(chat_id=chat_id, photo=photo)
+            except Exception as e:
+                logging.error(f"Review photo failed {photo_name}: {e}")
+
+    kb = [
+        [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
+        [InlineKeyboardButton("Записаться на звонок с Ярославом",        callback_data="cta:call")],
+    ]
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Реальные результаты от людей всего через месяц после старта на платформе.",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
