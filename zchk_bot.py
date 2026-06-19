@@ -244,10 +244,10 @@ QUESTIONS = {
     "novice_q1": {
         "text": "Что привело тебя к трейдингу?",
         "opts": [
-            ("Хочу выйти на доп. доход или уйти с работы",         "novice_q2a"),
-            ("Знакомый зарабатывает, захотел разобраться",          "novice_q2b"),
-            ("Уже инвестирую, хочу управлять капиталом активно",    "novice_seg13_q_final"),
-            ("Смотрел YouTube, интересно но каша в голове",         "novice_seg14_q_final"),
+            ("Хочу выйти на доп. доход или уйти с работы",   "novice_q2a"),
+            ("Знакомый зарабатывает, захотел разобраться",    "novice_q2b"),
+            ("Уже инвестирую, хочу торговать активно",        "novice_seg13_q_final"),
+            ("Смотрел YouTube, каша в голове",                "novice_seg14_q_final"),
         ]
     },
     "novice_q2a": {
@@ -301,30 +301,30 @@ QUESTIONS = {
     "beginner_q1": {
         "text": "Какой сейчас результат в торговле?",
         "opts": [
-            ("Слил депозит, один или несколько",              "beginner_q2a"),
-            ("Торгую около нуля, нет стабильности",           "beginner_q2b"),
-            ("Пробовал разные стратегии, ничего не работает", "beginner_q2c"),
+            ("Слил депозит, один или несколько",            "beginner_q2a"),
+            ("Торгую около нуля, нет стабильности",         "beginner_q2b"),
+            ("Разные стратегии — ничего не работает",       "beginner_q2c"),
         ]
     },
     "beginner_q2a": {
         "text": "Как ты учился торговать?",
         "opts": [
             ("Сам по YouTube и форумам",             "beginner_seg21_q_final"),
-            ("Купил курс или несколько, не помогло", "beginner_seg21_q_final"),
+            ("Купил курс(ы), результата нет",        "beginner_seg21_q_final"),
         ]
     },
     "beginner_q2b": {
         "text": "Что обычно происходит в сделках?",
         "opts": [
-            ("Постоянно меняю стратегии, ищу ту которая работает", "beginner_seg22_q_final"),
-            ("Стратегия есть но нарушаю её на эмоциях",            "beginner_seg22_q_final"),
+            ("Меняю стратегии, нет рабочей",              "beginner_seg22_q_final"),
+            ("Стратегия есть, нарушаю на эмоциях",        "beginner_seg22_q_final"),
         ]
     },
     "beginner_q2c": {
         "text": "Как ты учился торговать?",
         "opts": [
-            ("Купил курс или несколько, результата нет", "beginner_seg23_q_final"),
-            ("Учился сам по книгам и YouTube",           "beginner_seg24_q_final"),
+            ("Купил курс(ы), результата нет",    "beginner_seg23_q_final"),
+            ("Учился сам по книгам и YouTube",   "beginner_seg24_q_final"),
         ]
     },
     "beginner_seg21_q_final": {
@@ -362,17 +362,17 @@ QUESTIONS = {
     "experienced_q1": {
         "text": "Какая главная проблема прямо сейчас?",
         "opts": [
-            ("Бывают хорошие месяцы но нет стабильности на дистанции", "experienced_q2a"),
-            ("Эмоции мешают, режу профит, держу убыток, отыгрываюсь",  "experienced_seg32_q_final"),
-            ("Хочу в проп, не прохожу оценку или слил счёт",           "experienced_seg33_q_final"),
-            ("Торгую стабильно, хочу масштабировать",                   "experienced_seg34_q_final"),
+            ("Есть хорошие месяцы, но нет стабильности", "experienced_q2a"),
+            ("Эмоции мешают, нарушаю правила",            "experienced_seg32_q_final"),
+            ("Хочу в проп, не прохожу оценку",            "experienced_seg33_q_final"),
+            ("Торгую стабильно, хочу масштабировать",     "experienced_seg34_q_final"),
         ]
     },
     "experienced_q2a": {
         "text": "Что пробовал чтобы исправить?",
         "opts": [
-            ("Менял стратегии и подходы, не помогает",      "experienced_seg31_q_final"),
-            ("Ничего особо, думаю само исправится с опытом", "experienced_seg31_q_final"),
+            ("Менял стратегии — не помогает",            "experienced_seg31_q_final"),
+            ("Думаю само исправится с опытом",           "experienced_seg31_q_final"),
         ]
     },
     "experienced_seg31_q_final": {
@@ -625,6 +625,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_story(query, context)
     elif data == "show_why":
         await handle_why(query, context)
+    elif data == "show_platform_tour":
+        await handle_platform_tour(query, context)
     elif data == "cta:call":
         await handle_cta_call(query, context, user)
     elif data == "cta:platform":
@@ -740,9 +742,10 @@ async def send_result(query, context, user, result_key):
         logging.error(f"Warmup schedule failed: {e}")
 
     kb = [
-        [InlineKeyboardButton("История Ярослава",                   callback_data="show_story")],
+        [InlineKeyboardButton("Навигация по платформе",              callback_data="show_platform_tour")],
         [InlineKeyboardButton("Записаться на звонок с Ярославом",   callback_data="cta:call")],
-        [InlineKeyboardButton("Разобраться на платформе бесплатно", callback_data="cta:platform")],
+        [InlineKeyboardButton("История Ярослава",                    callback_data="show_story")],
+        [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
     ]
 
     photo = await fetch_photo(f"{GITHUB_BASE}/{RESULT_PHOTOS[track]}")
@@ -818,6 +821,68 @@ async def handle_story(query, context):
         except Exception as e:
             logging.error(f"Story photo failed: {e}")
     await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+
+
+async def handle_platform_tour(query, context):
+    chat_id = query.message.chat_id
+
+    tour_steps = [
+        {
+            "photo": "screen_login.png",
+            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль — и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
+        },
+        {
+            "photo": "screen_dasbord.png",
+            "text": "*02 — Главная панель*\n\nПосле входа попадаешь на дашборд. Здесь виден твой прогресс, доступные разделы и следующий шаг. Всё на одном экране.",
+        },
+        {
+            "photo": "screen_library.png",
+            "text": "*03 — Библиотека видеоуроков — 24 лекции*\n\nЭто ядро обучения. 24 урока разбиты на 5 блоков — от основ до проп-стратегий. Каждый урок: сначала теория, затем практика на реальном графике.",
+        },
+        {
+            "photo": "screen_lesson.png",
+            "text": None,
+        },
+        {
+            "photo": "screen_lesson2.png",
+            "text": None,
+        },
+        {
+            "photo": "screen_checklist.png",
+            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист — пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
+        },
+        {
+            "photo": "screen_articles.png",
+            "text": "*05 — Статьи и разборы от Ярослава*\n\nЯрослав сам пишет статьи с выжимками из практики. Не вода, не мотивация. Разборы реальных ситуаций, психология трейдера, типичные ошибки.",
+        },
+        {
+            "photo": "screen_metodichka.png",
+            "text": "*06 — Методичка — 6 частей с нуля до системы*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология — всё структурировано и по порядку.",
+        },
+    ]
+
+    for step in tour_steps:
+        photo = await fetch_photo(f"{GITHUB_BASE}/{step['photo']}")
+        if photo:
+            try:
+                await context.bot.send_photo(chat_id=chat_id, photo=photo)
+            except Exception as e:
+                logging.error(f"Platform tour photo failed {step['photo']}: {e}")
+        if step["text"]:
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=step["text"], parse_mode="Markdown")
+            except Exception as e:
+                logging.error(f"Platform tour text failed: {e}")
+
+    kb = [
+        [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
+        [InlineKeyboardButton("Записаться на звонок с Ярославом",        callback_data="cta:call")],
+    ]
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Это всё доступно сразу после регистрации. Триал бесплатно, без карты.",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
 
 
 async def handle_why(query, context):
