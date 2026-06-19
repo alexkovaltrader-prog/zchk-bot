@@ -12,6 +12,7 @@ import time
 import hashlib
 import uuid
 import httpx
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -34,6 +35,61 @@ PLATFORM_URL = "https://zchkcapital.com/login.html"
 CALENDLY_URL = "https://calendly.com/zaichikturit/founder-call"
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+async def schedule_message(telegram_id: int, message_type: str, delay_days: int, payload: dict = {}):
+    """Записывает сообщение в очередь Supabase. Не зависит от Railway редеплоев."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        logging.warning("schedule_message: SUPABASE_URL or SERVICE_KEY missing")
+        return
+    send_at = (datetime.utcnow() + timedelta(days=delay_days)).isoformat()
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.post(
+                f"{SUPABASE_URL}/rest/v1/scheduled_messages",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={
+                    "telegram_id": telegram_id,
+                    "message_type": message_type,
+                    "payload": payload,
+                    "send_at": send_at,
+                }
+            )
+            if resp.status_code >= 300:
+                logging.error(f"schedule_message failed: {resp.status_code} {resp.text}")
+            else:
+                logging.info(f"Scheduled {message_type} for {telegram_id} at {send_at}")
+    except Exception as e:
+        logging.error(f"schedule_message exception: {e}")
+
+
+async def save_survey_answer(telegram_id: int, question: str, answer: str):
+    """Сохраняет ответ на опросник в Supabase."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            await client.post(
+                f"{SUPABASE_URL}/rest/v1/survey_answers",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={
+                    "telegram_id": telegram_id,
+                    "question": question,
+                    "answer": answer,
+                }
+            )
+    except Exception as e:
+        logging.error(f"save_survey_answer exception: {e}")
+
 
 # ── META CONVERSIONS API ─────────────────────────────────────────────────────
 
@@ -629,6 +685,8 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_platform_tour(query, context)
     elif data == "show_reviews":
         await handle_reviews(query, context)
+    elif data.startswith("survey:"):
+        await handle_survey_answer(query, context, user, data)
     elif data == "cta:call":
         await handle_cta_call(query, context, user)
     elif data == "cta:platform":
@@ -732,14 +790,17 @@ async def send_result(query, context, user, result_key):
         logging.error(f"Lead notify failed: {e}")
 
     try:
-        warmup_msgs = WARMUP.get(result_key, WARMUP.get(f"result_{track}_11_hot", []))
-        for i, msg in enumerate(warmup_msgs):
-            context.job_queue.run_once(
-                send_warmup,
-                (i + 1) * 86400,
-                data={"chat_id": chat_id, "text": msg, "step": i},
-                name=f"warmup_{chat_id}_{i}"
-            )
+        msg_payload = {
+            "result_key": result_key,
+            "track": track,
+            "temperature": temperature,
+            "name": user.first_name or "",
+        }
+        await schedule_message(user.id, "warmup_1", delay_days=1, payload=msg_payload)
+        await schedule_message(user.id, "warmup_2", delay_days=2, payload=msg_payload)
+        await schedule_message(user.id, "warmup_3", delay_days=3, payload=msg_payload)
+        await schedule_message(user.id, "survey_7", delay_days=7, payload=msg_payload)
+        logging.info(f"Scheduled warmup+survey for {user.id}")
     except Exception as e:
         logging.error(f"Warmup schedule failed: {e}")
 
@@ -825,13 +886,75 @@ async def handle_story(query, context):
     await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 
+async def handle_survey_answer(query, context, user, data):
+    """Обрабатывает ответы на опросник дня 7."""
+    parts = data.split(":")
+    # формат: survey:question:answer
+    if len(parts) < 3:
+        return
+
+    question = parts[1]
+    answer = parts[2]
+
+    await save_survey_answer(user.id, question, answer)
+    chat_id = query.message.chat_id
+
+    if question == "watched":
+        if answer == "none":
+            kb = [
+                [InlineKeyboardButton("Нет времени", callback_data="survey:barrier:time")],
+                [InlineKeyboardButton("Не понятно с чего начать", callback_data="survey:barrier:confused")],
+                [InlineKeyboardButton("Просто забыл", callback_data="survey:barrier:forgot")],
+            ]
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Понял. Что мешает зайти?",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+        else:
+            kb = [
+                [InlineKeyboardButton("Да, хочу созвониться", callback_data="survey:call:yes")],
+                [InlineKeyboardButton("Пока справляюсь сам", callback_data="survey:call:no")],
+            ]
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Отлично. Нужна помощь от Ярослава — разобрать сделки или стратегию?",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+
+    elif question == "barrier":
+        kb = [[InlineKeyboardButton("Записаться на звонок с Ярославом", callback_data="cta:call")]]
+        if answer == "time":
+            text = "Понял. Уроки короткие — можно смотреть по одному в день, это займёт 15-20 минут. Если нужна помощь чтобы стартовать — Ярослав разберёт твою ситуацию за 10 минут."
+        elif answer == "confused":
+            text = "Это нормально. Зайди на платформу и начни с первого урока — там всё по порядку. Или созвонись с Ярославом, он покажет конкретный следующий шаг."
+        else:  # forgot
+            text = "Бывает. Зайди сейчас — первый урок займёт 20 минут. Если нужна точка входа, Ярослав покажет с чего именно начать тебе."
+        kb_platform = [[InlineKeyboardButton("Открыть платформу", callback_data="cta:platform")]] + kb
+        await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(kb_platform))
+
+    elif question == "call":
+        if answer == "yes":
+            kb = [[InlineKeyboardButton("Записаться на звонок", callback_data="cta:call")]]
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Ярослав лично разберёт твою ситуацию. 10 минут, без продаж.",
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Отлично. Продолжай в том же темпе. Если появятся вопросы — Ярослав на связи."
+            )
+
+
 async def handle_platform_tour(query, context):
     chat_id = query.message.chat_id
 
     tour_steps = [
         {
             "photo": "screen_login.png",
-            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
+            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль — и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
         },
         {
             "photo": "screen_dasbord.png",
@@ -839,7 +962,7 @@ async def handle_platform_tour(query, context):
         },
         {
             "photo": "screen_library.png",
-            "text": "*03 — Библиотека видеоуроков 24 лекции*\n\nЭто ядро обучения. 24 лекции разбиты на 5 блоков, от основ до реальной прибыли. Каждый урок: сначала теория, затем практика на реальном графике + домашнее задание.",
+            "text": "*03 — Библиотека видеоуроков — 24 лекции*\n\nЭто ядро обучения. 24 урока разбиты на 5 блоков — от основ до проп-стратегий. Каждый урок: сначала теория, затем практика на реальном графике.",
         },
         {
             "photo": "screen_lesson.png",
@@ -851,7 +974,7 @@ async def handle_platform_tour(query, context):
         },
         {
             "photo": "screen_checklist.png",
-            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
+            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист — пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
         },
         {
             "photo": "screen_articles.png",
@@ -859,7 +982,7 @@ async def handle_platform_tour(query, context):
         },
         {
             "photo": "screen_metodichka.png",
-            "text": "*06 — Методичка 6 частей с нуля до системной прибыли*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология. Всё структурировано и по порядку.",
+            "text": "*06 — Методичка — 6 частей с нуля до системы*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология — всё структурировано и по порядку.",
         },
     ]
 
@@ -883,7 +1006,7 @@ async def handle_platform_tour(query, context):
     ]
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Это всё доступно сразу после регистрации. Триал дает возможность прикоснуться к продукту, посмотреть лекции и убедиться в качестве материала. Дальше сам решишь!",
+        text="Это всё доступно сразу после регистрации. Триал бесплатно, без карты.",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
@@ -910,7 +1033,7 @@ async def handle_reviews(query, context):
     ]
     await context.bot.send_message(
         chat_id=chat_id,
-        text="Реальные результаты от людей всего через месяц после старта на платформе.",
+        text="Реальные результаты от людей — всего через месяц после старта на платформе.",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
