@@ -20,7 +20,8 @@ from telegram.ext import (
 )
 
 TOKEN         = os.environ["BOT_TOKEN"]
-LEADS_CHAT_ID = int(os.environ["LEADS_CHAT_ID"])
+LEADS_CHAT_ID  = int(os.environ["LEADS_CHAT_ID"])
+SURVEY_CHAT_ID = int(os.getenv("SURVEY_CHAT_ID", "0"))
 
 META_PIXEL_ID        = os.getenv("META_PIXEL_ID", "1327166909546164")
 META_ACCESS_TOKEN    = os.getenv("META_ACCESS_TOKEN", "")
@@ -898,6 +899,30 @@ async def handle_survey_answer(query, context, user, data):
 
     await save_survey_answer(user.id, question, answer)
     chat_id = query.message.chat_id
+
+    # Уведомление в группу опросников
+    if SURVEY_CHAT_ID:
+        answer_labels = {
+            "watched:several": "✅ Смотрел несколько уроков",
+            "watched:one": "👀 Посмотрел один урок",
+            "watched:none": "❌ Ещё не заходил",
+            "barrier:time": "⏰ Нет времени",
+            "barrier:confused": "❓ Не понятно с чего начать",
+            "barrier:forgot": "😅 Просто забыл",
+            "call:yes": "📞 Хочет созвониться",
+            "call:no": "👍 Справляется сам",
+        }
+        label = answer_labels.get(f"{question}:{answer}", f"{question}:{answer}")
+        try:
+            await context.bot.send_message(
+                SURVEY_CHAT_ID,
+                f"📊 *Ответ на опросник*\n\n"
+                f"👤 {user.full_name} (@{user.username or 'нет'})\n"
+                f"💬 {label}",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logging.error(f"Survey notify failed: {e}")
 
     if question == "watched":
         if answer == "none":
