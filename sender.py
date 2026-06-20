@@ -138,16 +138,20 @@ async def send_telegram(telegram_id: int, text: str, keyboard=None):
 
 
 async def send_photo_telegram(telegram_id: int, photo_url: str):
-    async with httpx.AsyncClient(timeout=30) as client:
-        photo_resp = await client.get(photo_url)
-        if photo_resp.status_code != 200:
-            return
-        files = {"photo": ("photo.jpg", photo_resp.content, "image/jpeg")}
-        await client.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-            data={"chat_id": telegram_id},
-            files=files
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            photo_resp = await client.get(photo_url)
+            if photo_resp.status_code != 200:
+                logging.warning(f"Photo download failed {photo_url}: {photo_resp.status_code}")
+                return
+            files = {"photo": ("photo.jpg", photo_resp.content, "image/jpeg")}
+            await client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                data={"chat_id": telegram_id},
+                files=files
+            )
+    except Exception as e:
+        logging.warning(f"send_photo_telegram failed, skipping: {e}")
 
 
 # ── Message processors ───────────────────────────────────────────────────────
