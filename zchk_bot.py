@@ -900,25 +900,39 @@ async def handle_survey_answer(query, context, user, data):
     await save_survey_answer(user.id, question, answer)
     chat_id = query.message.chat_id
 
-    # Уведомление в группу опросников
-    if SURVEY_CHAT_ID:
-        answer_labels = {
-            "watched:several": "✅ Смотрел несколько уроков",
-            "watched:one": "👀 Посмотрел один урок",
-            "watched:none": "❌ Ещё не заходил",
-            "barrier:time": "⏰ Нет времени",
-            "barrier:confused": "❓ Не понятно с чего начать",
-            "barrier:forgot": "😅 Просто забыл",
-            "call:yes": "📞 Хочет созвониться",
-            "call:no": "👍 Справляется сам",
-        }
-        label = answer_labels.get(f"{question}:{answer}", f"{question}:{answer}")
+    # Накапливаем ответы в user_data
+    if "survey" not in context.user_data:
+        context.user_data["survey"] = {}
+    context.user_data["survey"][question] = answer
+
+    answer_labels = {
+        "watched:several": "✅ Смотрел несколько уроков",
+        "watched:one": "👀 Посмотрел один урок",
+        "watched:none": "❌ Ещё не заходил",
+        "barrier:time": "⏰ Нет времени",
+        "barrier:confused": "❓ Не понятно с чего начать",
+        "barrier:forgot": "😅 Просто забыл",
+        "call:yes": "📞 Хочет созвониться",
+        "call:no": "👍 Справляется сам",
+    }
+
+    # Отправляем итоговое уведомление только после последнего вопроса
+    is_last = question in ["call", "barrier"]
+    if is_last and SURVEY_CHAT_ID:
+        survey = context.user_data.get("survey", {})
+        lines = []
+        for q, a in survey.items():
+            label = answer_labels.get(f"{q}:{a}", f"{q}:{a}")
+            lines.append(f"💬 {label}")
+        answers_text = "\n".join(lines)
+        hot = answer in ["yes", "confused", "forgot"]
+        flag = "🔥 Горячий" if hot else "❄️ Холодный"
         try:
             await context.bot.send_message(
                 SURVEY_CHAT_ID,
-                f"📊 *Ответ на опросник*\n\n"
-                f"👤 {user.full_name} (@{user.username or 'нет'})\n"
-                f"💬 {label}",
+                f"📊 *Опросник завершён* {flag}\n\n"
+                f"👤 {user.full_name} (@{user.username or 'нет'})\n\n"
+                f"{answers_text}",
                 parse_mode="Markdown"
             )
         except Exception as e:
