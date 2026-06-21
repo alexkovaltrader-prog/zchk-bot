@@ -747,6 +747,9 @@ async def send_result(query, context, user, result_key):
     path        = state.get("path", [])
     temperature = "hot" if result_key.endswith("_hot") else "cold"
 
+    # Защита от дублей — если результат уже был отправлен, не шлём лид и не создаём очередь
+    already_done = state.get("quiz_completed", False)
+
     state["quiz_completed"] = True
     state["result_key"]     = result_key
     state["track"]          = track
@@ -780,30 +783,31 @@ async def send_result(query, context, user, result_key):
         payload=payload,
     )
 
-    try:
-        utm_display = (payload or {}).get("utm_source", "direct")
-        await context.bot.send_message(
-            LEADS_CHAT_ID,
-            f"🔥 *Новый лид*\n\n👤 {user.full_name} (@{user.username or 'нет'})\n🎯 Сегмент: `{result_key}`\n📡 UTM: `{utm_display}`",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logging.error(f"Lead notify failed: {e}")
+    if not already_done:
+        try:
+            utm_display = (payload or {}).get("utm_source", "direct")
+            await context.bot.send_message(
+                LEADS_CHAT_ID,
+                f"🔥 *Новый лид*\n\n👤 {user.full_name} (@{user.username or 'нет'})\n🎯 Сегмент: `{result_key}`\n📡 UTM: `{utm_display}`",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logging.error(f"Lead notify failed: {e}")
 
-    try:
-        msg_payload = {
-            "result_key": result_key,
-            "track": track,
-            "temperature": temperature,
-            "name": user.first_name or "",
-        }
-        await schedule_message(user.id, "warmup_1", delay_days=1, payload=msg_payload)
-        await schedule_message(user.id, "warmup_2", delay_days=2, payload=msg_payload)
-        await schedule_message(user.id, "warmup_3", delay_days=3, payload=msg_payload)
-        await schedule_message(user.id, "survey_7", delay_days=7, payload=msg_payload)
-        logging.info(f"Scheduled warmup+survey for {user.id}")
-    except Exception as e:
-        logging.error(f"Warmup schedule failed: {e}")
+        try:
+            msg_payload = {
+                "result_key": result_key,
+                "track": track,
+                "temperature": temperature,
+                "name": user.first_name or "",
+            }
+            await schedule_message(user.id, "warmup_1", delay_days=1, payload=msg_payload)
+            await schedule_message(user.id, "warmup_2", delay_days=2, payload=msg_payload)
+            await schedule_message(user.id, "warmup_3", delay_days=3, payload=msg_payload)
+            await schedule_message(user.id, "survey_7", delay_days=7, payload=msg_payload)
+            logging.info(f"Scheduled warmup+survey for {user.id}")
+        except Exception as e:
+            logging.error(f"Warmup schedule failed: {e}")
 
     kb = [
         [InlineKeyboardButton("Навигация по платформе",              callback_data="show_platform_tour")],
