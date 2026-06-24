@@ -12,7 +12,7 @@ import time
 import hashlib
 import uuid
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
@@ -42,7 +42,7 @@ async def schedule_message(telegram_id: int, message_type: str, delay_days: int,
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         logging.warning("schedule_message: SUPABASE_URL or SERVICE_KEY missing")
         return
-    send_at = (datetime.utcnow() + timedelta(days=delay_days)).isoformat()
+    send_at = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=delay_days)).isoformat()
     try:
         async with httpx.AsyncClient(timeout=8) as client:
             resp = await client.post(
