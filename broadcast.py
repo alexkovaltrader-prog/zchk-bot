@@ -97,7 +97,7 @@ async def broadcast():
 
 async def main():
     # Для теста — отправить только себе
-    await test_broadcast()
+    await broadcast()
     # Для массовой рассылки — раскомментировать строку ниже и закомментировать строку выше
     # await broadcast()
 
