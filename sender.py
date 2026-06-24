@@ -298,8 +298,7 @@ async def process_survey(telegram_id: int, payload: dict):
 
 
 async def process_pwa_announcement(telegram_id: int):
-    await send_photo_telegram(telegram_id, f"{GITHUB_BASE}/photo_2026-06-23_14-55-03.jpg")
-    await send_photo_telegram(telegram_id, f"{GITHUB_BASE}/photo_2026-06-24_12-54-31.jpg")
+    await send_photo_telegram(telegram_id, f"{GITHUB_BASE}/pwa_guide.png")
 
     text = (
         "Платформа ZCHK теперь работает как приложение 📱\n\n"
