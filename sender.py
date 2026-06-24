@@ -310,7 +310,7 @@ async def process_pwa_announcement(telegram_id: int):
         "Для этого напишите мне."
     )
     kb = [
-        [{"text": "Написать Ярославу", "url": "https://t.me/zaichiktrader"}],
+        [{"text": "Написать Ярославу", "url": "https://t.me/zchkcapitalmanager"}],
         [{"text": "Перейти к оплате →", "url": "https://app.lava.top/products/c61cc7e5-88fd-47fc-9516-c682b47f5837"}],
     ]
     return await send_telegram(telegram_id, text, kb)
