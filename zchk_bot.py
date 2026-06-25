@@ -658,7 +658,7 @@ def get_lock(uid):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     source = get_source_from_context(context)
-    if source.startswith("sl_"):
+    if source.startswith("sl_") or source.startswith("s1_"):
         await save_profile_session_id(user.id, source)
     parsed = await resolve_payload(source)
 
