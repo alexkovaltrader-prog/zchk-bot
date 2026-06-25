@@ -92,6 +92,31 @@ async def save_survey_answer(telegram_id: int, question: str, answer: str):
         logging.error(f"save_survey_answer exception: {e}")
 
 
+async def save_profile_session_id(telegram_id: int, session_id: str):
+    """Записывает session_id из deep link (sl_...) в profiles."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.patch(
+                f"{SUPABASE_URL}/rest/v1/profiles",
+                params={"telegram": f"eq.{telegram_id}"},
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={"session_id": session_id},
+            )
+            if resp.status_code >= 300:
+                logging.error(f"save_profile_session_id failed: {resp.status_code} {resp.text}")
+            else:
+                logging.info(f"Saved session_id={session_id} for telegram={telegram_id}")
+    except Exception as e:
+        logging.error(f"save_profile_session_id exception: {e}")
+
+
 # ── META CONVERSIONS API ─────────────────────────────────────────────────────
 
 def sha256(value: str) -> str:
@@ -633,6 +658,8 @@ def get_lock(uid):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     source = get_source_from_context(context)
+    if source.startswith("sl_"):
+        await save_profile_session_id(user.id, source)
     parsed = await resolve_payload(source)
 
     set_state(user.id, {
