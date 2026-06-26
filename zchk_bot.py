@@ -14,6 +14,7 @@ import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
     ContextTypes,
@@ -278,6 +279,28 @@ async def fetch_photo(url: str):
         return data
     except Exception as e:
         logging.error(f"fetch_photo failed {url}: {e}")
+        return None
+
+PHOTO_FILE_ID_CACHE = {}
+
+async def send_cached_photo(bot, chat_id, url, **kwargs):
+    try:
+        file_id = PHOTO_FILE_ID_CACHE.get(url)
+        if file_id:
+            try:
+                return await bot.send_photo(chat_id=chat_id, photo=file_id, **kwargs)
+            except BadRequest:
+                PHOTO_FILE_ID_CACHE.pop(url, None)
+
+        data = await fetch_photo(url)
+        if data is None:
+            return None
+
+        message = await bot.send_photo(chat_id=chat_id, photo=data, **kwargs)
+        PHOTO_FILE_ID_CACHE[url] = message.photo[-1].file_id
+        return message
+    except Exception as e:
+        logging.error(f"send_cached_photo failed {url}: {e}")
         return None
 
 # ── ИСТОРИЯ И ПОЧЕМУ ZCHK ────────────────────────────────────────────────────
@@ -687,10 +710,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"чтобы я смог точнее подсказать дальнейшие шаги и ты смог делать такой же результат.\n\n"
         f"*{q['text']}*"
     )
-    photo = await fetch_photo(f"{GITHUB_BASE}/Frame%20307.png")
-    if photo:
-        await update.message.reply_photo(photo=photo, caption=welcome, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-    else:
+    msg = await send_cached_photo(
+        context.bot,
+        update.effective_chat.id,
+        f"{GITHUB_BASE}/Frame%20307.png",
+        caption=welcome,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
+    if not msg:
         await update.message.reply_text(welcome, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 
@@ -843,13 +871,19 @@ async def send_result(query, context, user, result_key):
         [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
     ]
 
-    photo = await fetch_photo(f"{GITHUB_BASE}/{RESULT_PHOTOS[track]}")
-    if photo:
-        try:
-            await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=r["text"], parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    try:
+        msg = await send_cached_photo(
+            context.bot,
+            chat_id,
+            f"{GITHUB_BASE}/{RESULT_PHOTOS[track]}",
+            caption=r["text"],
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+        if msg:
             return
-        except Exception as e:
-            logging.error(f"Result photo failed: {e}")
+    except Exception as e:
+        logging.error(f"Result photo failed: {e}")
 
     await context.bot.send_message(chat_id=chat_id, text=r["text"], parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -909,12 +943,10 @@ async def handle_cta_platform(query, context, user):
 async def handle_story(query, context):
     kb      = [[InlineKeyboardButton("Почему ZCHK", callback_data="show_why")]]
     chat_id = query.message.chat_id
-    photo   = await fetch_photo(f"{GITHUB_BASE}/IMG_0101.JPG")
-    if photo:
-        try:
-            await context.bot.send_photo(chat_id=chat_id, photo=photo)
-        except Exception as e:
-            logging.error(f"Story photo failed: {e}")
+    try:
+        await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/IMG_0101.JPG")
+    except Exception as e:
+        logging.error(f"Story photo failed: {e}")
     await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 
@@ -1057,12 +1089,10 @@ async def handle_platform_tour(query, context):
     ]
 
     for step in tour_steps:
-        photo = await fetch_photo(f"{GITHUB_BASE}/{step['photo']}")
-        if photo:
-            try:
-                await context.bot.send_photo(chat_id=chat_id, photo=photo)
-            except Exception as e:
-                logging.error(f"Platform tour photo failed {step['photo']}: {e}")
+        try:
+            await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/{step['photo']}")
+        except Exception as e:
+            logging.error(f"Platform tour photo failed {step['photo']}: {e}")
         if step["text"]:
             try:
                 await context.bot.send_message(chat_id=chat_id, text=step["text"], parse_mode="Markdown")
@@ -1090,12 +1120,10 @@ async def handle_reviews(query, context):
     ]
 
     for photo_name in review_photos:
-        photo = await fetch_photo(f"{GITHUB_BASE}/{photo_name}")
-        if photo:
-            try:
-                await context.bot.send_photo(chat_id=chat_id, photo=photo)
-            except Exception as e:
-                logging.error(f"Review photo failed {photo_name}: {e}")
+        try:
+            await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/{photo_name}")
+        except Exception as e:
+            logging.error(f"Review photo failed {photo_name}: {e}")
 
     kb = [
         [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
@@ -1114,12 +1142,10 @@ async def handle_why(query, context):
         [InlineKeyboardButton("Разобраться самостоятельно на платформе", callback_data="cta:platform")],
     ]
     chat_id = query.message.chat_id
-    photo   = await fetch_photo(f"{GITHUB_BASE}/photo_seacrest_cert.jpg")
-    if photo:
-        try:
-            await context.bot.send_photo(chat_id=chat_id, photo=photo)
-        except Exception as e:
-            logging.error(f"Why photo failed: {e}")
+    try:
+        await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/photo_seacrest_cert.jpg")
+    except Exception as e:
+        logging.error(f"Why photo failed: {e}")
     await context.bot.send_message(chat_id=chat_id, text=WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
 
@@ -1141,12 +1167,14 @@ async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Записаться на звонок с Ярославом",   callback_data="cta:call")],
     ]
     if data["step"] == 1:
-        photo = await fetch_photo(f"{GITHUB_BASE}/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png")
-        if photo:
-            try:
-                await context.bot.send_photo(data["chat_id"], photo=photo)
-            except Exception as e:
-                logging.error(f"Warmup photo failed: {e}")
+        try:
+            await send_cached_photo(
+                context.bot,
+                data["chat_id"],
+                f"{GITHUB_BASE}/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png",
+            )
+        except Exception as e:
+            logging.error(f"Warmup photo failed: {e}")
     try:
         await context.bot.send_message(data["chat_id"], data["text"], parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     except Exception as e:
