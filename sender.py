@@ -18,6 +18,11 @@ SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 SURVEY_CHAT_ID     = int(os.getenv("SURVEY_CHAT_ID", "0"))
 PLATFORM_URL       = "https://zchkcapital.com/login.html"
 CALENDLY_URL       = "https://calendly.com/zaichikturit/founder-call"
+
+
+def calendly_link(user_id: int) -> str:
+    return f"{CALENDLY_URL}?utm_source={user_id}&utm_content={user_id}"
+
 GITHUB_BASE        = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
 
 # ── Тексты прогрева (все 24 ключа из бота) ───────────────────────────────────
@@ -276,7 +281,7 @@ async def process_warmup(telegram_id: int, step: int, payload: dict):
 
     kb = [
         [{"text": "Открыть платформу", "url": PLATFORM_URL}],
-        [{"text": "Записаться на звонок с Ярославом", "url": CALENDLY_URL}],
+        [{"text": "Записаться на звонок с Ярославом", "url": calendly_link(telegram_id)}],
     ]
 
     if step == 1:
@@ -284,6 +289,27 @@ async def process_warmup(telegram_id: int, step: int, payload: dict):
             telegram_id,
             f"{GITHUB_BASE}/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png"
         )
+
+    return await send_telegram(telegram_id, text, kb)
+
+
+async def process_call_reminder(telegram_id: int, payload: dict, kind: str):
+    join_url = payload.get("join_url", "")
+    cancel_url = payload.get("cancel_url", "")
+
+    if kind == "1h":
+        text = ("Привет, это Ярослав. Через час у нас созвон, скинул ссылку "
+                "на зум ниже, заходи с неё. Если вдруг не получается прийти, "
+                "отмени по кнопке, чтобы место не пропало.")
+    else:
+        text = ("Через 10 минут начинаем, залетай в зум по кнопке. Буду ждать. "
+                "Если планы поменялись, отмени звонок, чтобы освободить место.")
+
+    kb = []
+    if join_url:
+        kb.append([{"text": "Подключиться к зуму", "url": join_url}])
+    if cancel_url:
+        kb.append([{"text": "Отменить звонок", "url": cancel_url}])
 
     return await send_telegram(telegram_id, text, kb)
 
@@ -331,6 +357,10 @@ async def process_message(msg: dict):
         return await process_survey(telegram_id, payload)
     elif message_type == "pwa_announcement":
         return await process_pwa_announcement(telegram_id)
+    elif message_type == "call_reminder_1h":
+        return await process_call_reminder(telegram_id, payload, "1h")
+    elif message_type == "call_reminder_10m":
+        return await process_call_reminder(telegram_id, payload, "10m")
     else:
         logging.warning(f"Unknown message_type: {message_type}")
         return False

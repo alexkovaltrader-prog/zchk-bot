@@ -36,6 +36,10 @@ GITHUB_BASE  = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/
 PLATFORM_URL = "https://zchkcapital.com/login.html"
 CALENDLY_URL = "https://calendly.com/zaichikturit/founder-call"
 
+
+def calendly_link(user_id: int) -> str:
+    return f"{CALENDLY_URL}?utm_source={user_id}&utm_content={user_id}"
+
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 async def schedule_message(telegram_id: int, message_type: str, delay_days: int, payload: dict = {}):
@@ -901,12 +905,12 @@ async def handle_cta_call(query, context, user):
             "result_key":  state.get("result_key", ""),
             "track":       state.get("track", ""),
             "temperature": state.get("temperature", ""),
-            "destination": CALENDLY_URL,
+            "destination": calendly_link(user.id),
         },
         payload=payload,
     )
 
-    kb = [[InlineKeyboardButton("Открыть календарь для записи", url=CALENDLY_URL)]]
+    kb = [[InlineKeyboardButton("Открыть календарь для записи", url=calendly_link(user.id))]]
     await context.bot.send_message(
         chat_id=query.message.chat_id,
         text="Отлично. Ниже ссылка на календарь. Выбери удобное время для 10-минутного звонка с Ярославом.",
