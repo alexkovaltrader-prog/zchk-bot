@@ -16,8 +16,8 @@ from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler,
-    ContextTypes,
+    Application, CommandHandler, CallbackQueryHandler, MessageHandler,
+    ContextTypes, filters,
 )
 
 TOKEN         = os.environ["BOT_TOKEN"]
@@ -33,8 +33,13 @@ SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 GITHUB_BASE  = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
-PLATFORM_URL = "https://zchkcapital.com/login.html"
 CALENDLY_URL = "https://calendly.com/zaichikturit/founder-call"
+
+import db
+import gate
+import onboarding
+import pushes
+from config import GATE_ALERT_NOT_SUB, MENU_REVIEWS, PLATFORM_URL, REVIEWS_URL
 
 
 def calendly_link(user_id: int) -> str:
@@ -685,6 +690,7 @@ def get_lock(uid):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     source = get_source_from_context(context)
+    db.upsert_on_start(user.id, source)
     if source.startswith("sl_") or source.startswith("s1_"):
         await save_profile_session_id(user.id, source)
     parsed = await resolve_payload(source)
@@ -705,32 +711,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         payload=parsed,
     )
 
-    q  = QUESTIONS["start"]
-    kb = [[InlineKeyboardButton(opt, callback_data=f"q:start:{i}")] for i, (opt, _) in enumerate(q["opts"])]
-    welcome = (
-        f"Привет, {user.first_name}\n\n"
-        f"Я Ярослав Зайцев,основатель ZCHK Academy и ZCHK Capital Fund, платформы по трейдингу.\n\n"
-        f"Выше ты видишь малую часть моих результатов,и меня, который сейчас задаст тебе 5 вопросов, "
-        f"чтобы я смог точнее подсказать дальнейшие шаги и ты смог делать такой же результат.\n\n"
-        f"*{q['text']}*"
-    )
-    msg = await send_cached_photo(
-        context.bot,
-        update.effective_chat.id,
-        f"{GITHUB_BASE}/Frame%20307.png",
-        caption=welcome,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb),
-    )
-    if not msg:
-        await update.message.reply_text(welcome, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+    row = db.get_user(user.id) or {}
+    if row.get("gate_passed"):
+        await onboarding.resume_or_start(context.bot, update.effective_chat.id, user.id)
+        return
+
+    await gate.send_gate(context.bot, update.effective_chat.id)
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user  = update.effective_user
     data  = query.data
+
+    if data == "check_sub":
+        await handle_check_sub(query, context, user)
+        return
+    if data in ("onb:next", "onb:prev"):
+        await handle_onboarding_nav(query, context, user, data)
+        return
+
+    await query.answer()
 
     if data.startswith("q:"):
         lock = get_lock(user.id)
@@ -754,6 +755,57 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "restart":
         set_state(user.id, {})
         await start_from_callback(query, context, user)
+
+
+async def handle_check_sub(query, context, user):
+    row = db.get_user(user.id) or db.upsert_on_start(user.id, "direct")
+    if not gate.check_cooldown_ok(row):
+        await query.answer()
+        return
+
+    db.update_user(user.id, last_sub_check_at=time.time())
+    member = await gate.is_channel_member(context.bot, user.id)
+    if member is False:
+        await query.answer(GATE_ALERT_NOT_SUB, show_alert=True)
+        return
+
+    await query.answer()
+    db.mark_subscribed(user.id)
+    touch = int(row.get("push_touch") or 0)
+    if touch > 0:
+        db.log_push(user.id, touch, "subscribed_after_touch")
+        db.update_user(user.id, push_sequence_done=1)
+    await onboarding.resume_or_start(context.bot, query.message.chat_id, user.id)
+
+
+async def handle_onboarding_nav(query, context, user, data):
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    row = db.get_user(user.id) or {}
+    index = int(row.get("onboarding_step") or 0)
+    if data == "onb:next":
+        index += 1
+    else:
+        index -= 1
+    await onboarding.show_step(
+        context.bot,
+        query.message.chat_id,
+        user.id,
+        index,
+        query.message.message_id,
+    )
+
+
+async def handle_menu_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton(MENU_REVIEWS, url=REVIEWS_URL)]]
+    )
+    await update.message.reply_text(
+        "Отзывы тех, кто уже внутри:",
+        reply_markup=kb,
+    )
 
 
 async def handle_question(query, context, user, data):
@@ -1055,64 +1107,10 @@ async def handle_survey_answer(query, context, user, data):
 
 
 async def handle_platform_tour(query, context):
-    chat_id = query.message.chat_id
-
-    tour_steps = [
-        {
-            "photo": "screen_login.png",
-            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль — и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
-        },
-        {
-            "photo": "screen_dasbord.png",
-            "text": "*02 — Главная панель*\n\nПосле входа попадаешь на дашборд. Здесь виден твой прогресс, доступные разделы и следующий шаг. Всё на одном экране.",
-        },
-        {
-            "photo": "screen_library.png",
-            "text": "*03 — Библиотека видеоуроков — 24 лекции*\n\nЭто ядро обучения. 24 урока разбиты на 5 блоков — от основ до проп-стратегий. Каждый урок: сначала теория, затем практика на реальном графике.",
-        },
-        {
-            "photo": "screen_lesson.png",
-            "text": None,
-        },
-        {
-            "photo": "screen_lesson2.png",
-            "text": None,
-        },
-        {
-            "photo": "screen_checklist.png",
-            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист — пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
-        },
-        {
-            "photo": "screen_articles.png",
-            "text": "*05 — Статьи и разборы от Ярослава*\n\nЯрослав сам пишет статьи с выжимками из практики. Не вода, не мотивация. Разборы реальных ситуаций, психология трейдера, типичные ошибки.",
-        },
-        {
-            "photo": "screen_metodichka.png",
-            "text": "*06 — Методичка — 6 частей с нуля до системы*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология — всё структурировано и по порядку.",
-        },
-    ]
-
-    for step in tour_steps:
-        try:
-            await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/{step['photo']}")
-        except Exception as e:
-            logging.error(f"Platform tour photo failed {step['photo']}: {e}")
-        if step["text"]:
-            try:
-                await context.bot.send_message(chat_id=chat_id, text=step["text"], parse_mode="Markdown")
-            except Exception as e:
-                logging.error(f"Platform tour text failed: {e}")
-
-    kb = [
-        [InlineKeyboardButton("Отзывы студентов",                        callback_data="show_reviews")],
-        [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
-        [InlineKeyboardButton("Записаться на звонок с Ярославом",        callback_data="cta:call")],
-    ]
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Это всё доступно сразу после регистрации. Триал бесплатно, без карты.",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    user_id = query.from_user.id
+    db.upsert_on_start(user_id, "direct")
+    db.mark_subscribed(user_id)
+    await onboarding.resume_or_start(context.bot, query.message.chat_id, user_id)
 
 
 async def handle_reviews(query, context):
@@ -1186,10 +1184,16 @@ async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── ЗАПУСК ────────────────────────────────────────────────────────────────────
+async def post_init(app: Application):
+    db.init_db()
+    app.job_queue.run_repeating(pushes.run_push_job, interval=3600, first=30)
+
+
 def main():
-    app = Application.builder().token(TOKEN).build()
+    app = Application.builder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex(f"^{MENU_REVIEWS}$"), handle_menu_reviews))
     print("ZCHK Academy бот запущен")
     app.run_polling(drop_pending_updates=True)
 
