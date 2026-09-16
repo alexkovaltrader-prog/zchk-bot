@@ -37,7 +37,6 @@ CALENDLY_URL = "https://calendly.com/zaichikturit/founder-call"
 import db
 import gate
 import onboarding
-import pushes
 from config import GATE_ALERT_NOT_SUB, MENU_REVIEWS, PLATFORM_URL, REVIEWS_URL, log_image_assets
 
 
@@ -653,11 +652,38 @@ def get_lock(uid):
         user_locks[uid] = asyncio.Lock()
     return user_locks[uid]
 
+
+async def send_quiz_welcome(bot, chat_id, first_name):
+    q = QUESTIONS["start"]
+    kb = [[InlineKeyboardButton(opt, callback_data=f"q:start:{i}")] for i, (opt, _) in enumerate(q["opts"])]
+    welcome = (
+        f"Привет, {first_name}\n\n"
+        f"Я Ярослав Зайцев,основатель ZCHK Academy и ZCHK Capital Fund, платформы по трейдингу.\n\n"
+        f"Выше ты видишь малую часть моих результатов,и меня, который сейчас задаст тебе 5 вопросов, "
+        f"чтобы я смог точнее подсказать дальнейшие шаги и ты смог делать такой же результат.\n\n"
+        f"*{q['text']}*"
+    )
+    msg = await send_cached_photo(
+        bot,
+        chat_id,
+        "gate.jpg",
+        caption=welcome,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(kb),
+    )
+    if not msg:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=welcome,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(kb),
+        )
+
+
 # ── ХЭНДЛЕРЫ ─────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     source = get_source_from_context(context)
-    db.upsert_on_start(user.id, source)
     if source.startswith("sl_") or source.startswith("s1_"):
         await save_profile_session_id(user.id, source)
     parsed = await resolve_payload(source)
@@ -678,12 +704,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         payload=parsed,
     )
 
-    row = db.get_user(user.id) or {}
-    if row.get("gate_passed"):
-        await onboarding.resume_or_start(context.bot, update.effective_chat.id, user.id)
-        return
-
-    await gate.send_gate(context.bot, update.effective_chat.id)
+    await send_quiz_welcome(context.bot, update.effective_chat.id, user.first_name)
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -742,7 +763,7 @@ async def handle_check_sub(query, context, user):
     if touch > 0:
         db.log_push(user.id, touch, "subscribed_after_touch")
         db.update_user(user.id, push_sequence_done=1)
-    await onboarding.resume_or_start(context.bot, query.message.chat_id, user.id)
+    await send_quiz_welcome(context.bot, query.message.chat_id, user.first_name)
 
 
 async def handle_onboarding_nav(query, context, user, data):
@@ -1074,10 +1095,64 @@ async def handle_survey_answer(query, context, user, data):
 
 
 async def handle_platform_tour(query, context):
-    user_id = query.from_user.id
-    db.upsert_on_start(user_id, "direct")
-    db.mark_subscribed(user_id)
-    await onboarding.resume_or_start(context.bot, query.message.chat_id, user_id)
+    chat_id = query.message.chat_id
+
+    tour_steps = [
+        {
+            "photo": "screen_login.jpg",
+            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль — и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
+        },
+        {
+            "photo": "screen_dasbord.jpg",
+            "text": "*02 — Главная панель*\n\nПосле входа попадаешь на дашборд. Здесь виден твой прогресс, доступные разделы и следующий шаг. Всё на одном экране.",
+        },
+        {
+            "photo": "screen_library.jpg",
+            "text": "*03 — Библиотека видеоуроков — 24 лекции*\n\nЭто ядро обучения. 24 урока разбиты на 5 блоков — от основ до проп-стратегий. Каждый урок: сначала теория, затем практика на реальном графике.",
+        },
+        {
+            "photo": "screen_lesson.jpg",
+            "text": None,
+        },
+        {
+            "photo": "screen_lesson2.jpg",
+            "text": None,
+        },
+        {
+            "photo": "screen_checklist.jpg",
+            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист — пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
+        },
+        {
+            "photo": "screen_articles.jpg",
+            "text": "*05 — Статьи и разборы от Ярослава*\n\nЯрослав сам пишет статьи с выжимками из практики. Не вода, не мотивация. Разборы реальных ситуаций, психология трейдера, типичные ошибки.",
+        },
+        {
+            "photo": "screen_metodichka.jpg",
+            "text": "*06 — Методичка — 6 частей с нуля до системы*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология — всё структурировано и по порядку.",
+        },
+    ]
+
+    for step in tour_steps:
+        try:
+            await send_cached_photo(context.bot, chat_id, step["photo"])
+        except Exception as e:
+            logging.error(f"Platform tour photo failed {step['photo']}: {e}")
+        if step["text"]:
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=step["text"], parse_mode="Markdown")
+            except Exception as e:
+                logging.error(f"Platform tour text failed: {e}")
+
+    kb = [
+        [InlineKeyboardButton("Отзывы студентов",                        callback_data="show_reviews")],
+        [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
+        [InlineKeyboardButton("Записаться на звонок с Ярославом",        callback_data="cta:call")],
+    ]
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Это всё доступно сразу после регистрации. Триал бесплатно, без карты.",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
 
 
 async def handle_reviews(query, context):
@@ -1116,14 +1191,7 @@ async def handle_why(query, context):
 
 
 async def start_from_callback(query, context, user):
-    q  = QUESTIONS["start"]
-    kb = [[InlineKeyboardButton(opt, callback_data=f"q:start:{i}")] for i, (opt, _) in enumerate(q["opts"])]
-    await context.bot.send_message(
-        chat_id=query.message.chat_id,
-        text=f"*{q['text']}*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    await send_quiz_welcome(context.bot, query.message.chat_id, user.first_name)
 
 
 async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
@@ -1159,12 +1227,6 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(app: Application):
     log_image_assets()
     await app.bot.delete_webhook(drop_pending_updates=True)
-    db.init_db()
-    jq = app.job_queue
-    if jq is None:
-        logging.error("JobQueue unavailable; catch-up pushes disabled")
-        return
-    jq.run_repeating(pushes.run_push_job, interval=3600, first=30)
 
 
 def main():
