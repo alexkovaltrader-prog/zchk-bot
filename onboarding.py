@@ -4,18 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from telegram import ReplyKeyboardMarkup
 from telegram.error import BadRequest
 
 import db
 import funnels
-from config import MENU_REVIEWS
 
 log = logging.getLogger(__name__)
-
-
-def main_menu_keyboard():
-    return ReplyKeyboardMarkup([[MENU_REVIEWS]], resize_keyboard=True)
 
 
 def _funnel_for(user_id: int):
@@ -68,9 +62,13 @@ async def show_step(bot, chat_id: int, user_id: int, index: int, message_id: int
         except BadRequest as e:
             if "not modified" in str(e).lower():
                 return message_id
-            log.error("edit onboarding failed: %s", e)
+            log.error("edit onboarding failed, fallback delete+send: %s", e)
         except Exception as e:
-            log.error("edit onboarding failed: %s", e)
+            log.error("edit onboarding failed, fallback delete+send: %s", e)
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception as e:
+            log.error("delete onboarding failed: %s", e)
 
     msg = await send_photo(bot, chat_id, step["image"], caption, kb)
     if msg:
@@ -83,15 +81,5 @@ async def resume_or_start(bot, chat_id: int, user_id: int):
     funnels.lock_funnel_version(user_id)
     row = db.get_user(user_id) or {}
     index = int(row.get("onboarding_step") or 0)
-    await show_step(bot, chat_id, user_id, index, None)
-    funnel = _funnel_for(user_id)
-    hint = (
-        "Листай шаги кнопками ниже."
-        if getattr(funnel, "VERSION", "") == "v2"
-        else "Навигация по платформе. Листай шаги кнопками ниже."
-    )
-    await bot.send_message(
-        chat_id=chat_id,
-        text=hint,
-        reply_markup=main_menu_keyboard(),
-    )
+    message_id = row.get("onboarding_message_id")
+    await show_step(bot, chat_id, user_id, index, message_id)

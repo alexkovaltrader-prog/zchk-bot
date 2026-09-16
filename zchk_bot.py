@@ -848,13 +848,12 @@ async def handle_onboarding_nav(query, context, user, data):
         pass
     row = db.get_user(user.id) or {}
     index = int(row.get("onboarding_step") or 0)
-    message_id = query.message.message_id if query.message else None
+    message_id = getattr(query.message, "message_id", None) if query.message else None
+    message_id = message_id or row.get("onboarding_message_id")
     if data == "onb:next":
         index += 1
     elif data == "onb:prev":
         index -= 1
-    elif data == "onb:resume":
-        message_id = None
     await onboarding.show_step(
         context.bot,
         query.message.chat_id,
@@ -1321,6 +1320,7 @@ async def post_init(app: Application):
         config.MANAGER_URL = manager_deep_link(me.username)
         logging.info("bot username: @%s manager deep link: %s", me.username, config.MANAGER_URL)
     logging.info("funnel version: %s", funnels.default_version())
+    funnels.log_caption_lengths()
     log_image_assets()
     await app.bot.delete_webhook(drop_pending_updates=True)
     db.init_db()

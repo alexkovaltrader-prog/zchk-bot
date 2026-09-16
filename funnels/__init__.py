@@ -46,3 +46,18 @@ def lock_funnel_version(telegram_id: int) -> str:
 
 def funnel_for_user(telegram_id: int):
     return get_funnel(lock_funnel_version(telegram_id))
+
+
+CAPTION_LIMIT = 1024
+
+
+def log_caption_lengths():
+    import logging
+
+    log = logging.getLogger(__name__)
+    version = default_version()
+    funnel = get_funnel(version)
+    for index, step in enumerate(funnel.STEPS):
+        n = len(funnel.caption(index))
+        if n > CAPTION_LIMIT:
+            log.error("caption too long: step %s = %s chars", step.get("id"), n)
