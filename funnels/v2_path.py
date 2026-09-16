@@ -135,6 +135,7 @@ LINK_URLS = {
     "full": "FULL_ACCESS_URL",
     "quick": "QUICK_START_URL",
     "manager": "MANAGER_URL",
+    "register": "PLATFORM_URL",
 }
 
 
@@ -151,6 +152,7 @@ UTM_CONTENT = {
     "full": "future_full",
     "quick": "future_quick",
     "manager": "future",
+    "register": "future_register",
 }
 
 
@@ -187,6 +189,7 @@ def keyboard(index: int):
     elif layout == "result":
         rows.append([_link_button("Читать отзывы", "reviews", step_id)])
     elif layout == "future":
+        rows.append([_link_button("Регистрация в Академию", "register", step_id)])
         rows.append([_link_button("Полный доступ", "full", step_id)])
         rows.append([_link_button("Быстрый старт — 59$", "quick", step_id)])
         rows.append([_link_button("У меня вопрос", "manager", step_id)])

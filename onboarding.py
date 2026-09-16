@@ -44,7 +44,7 @@ async def show_step(bot, chat_id: int, user_id: int, index: int, message_id: int
         step_index=index,
     )
     layout = step.get("layout") or "nav"
-    shown = {"prop": ["cft"], "result": ["reviews"], "future": ["full", "quick", "manager"]}
+    shown = {"prop": ["cft"], "result": ["reviews"], "future": ["register", "full", "quick", "manager"]}
     for button_id in shown.get(layout, []):
         db.log_funnel_event(
             user_id,
