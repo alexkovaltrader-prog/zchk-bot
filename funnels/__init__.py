@@ -57,7 +57,9 @@ def log_caption_lengths():
     log = logging.getLogger(__name__)
     version = default_version()
     funnel = get_funnel(version)
+    log.info("caption check funnel=%s steps=%s", version, len(funnel.STEPS))
     for index, step in enumerate(funnel.STEPS):
         n = len(funnel.caption(index))
+        log.info("caption step %s = %s chars", step.get("id"), n)
         if n > CAPTION_LIMIT:
             log.error("caption too long: step %s = %s chars", step.get("id"), n)

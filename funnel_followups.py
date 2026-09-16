@@ -46,30 +46,25 @@ def _hours(value: str | None) -> float:
     return db.hours_since_iso(value) or 0.0
 
 
-def classify_purchase(profile: dict | None) -> str | None:
-    if not profile:
+# Тариф в profiles.plan (пишет lava-webhook / grant-trial, не эвристика по всем полям).
+# book       — Быстрый старт $59 (Lava 21e9a386-1e50-43af-b1cc-2277b272ad6d)
+# book_video — полный доступ (методичка + видео)
+# video / extended — полный видеодоступ (как book_video на платформе)
+# trial / pending / пусто — покупки нет
+PLAN_QUICK = frozenset({"book"})
+PLAN_FULL = frozenset({"book_video"})
+
+
+def classify_plan(plan) -> str | None:
+    if plan is None:
         return None
-    parts = []
-    for key, val in profile.items():
-        if val is None:
-            continue
-        parts.append(f"{key} {val}")
-    blob = " ".join(parts).lower()
-    full_keys = (
-        "full",
-        "annual",
-        "year",
-        "годов",
-        "полный",
-        "pro",
-        "premium",
-        "unlimited",
-    )
-    quick_keys = ("59", "quick", "starter", "start", "base", "быстр", "мини")
-    if any(k in blob for k in full_keys):
-        return "full"
-    if any(k in blob for k in quick_keys):
+    value = str(plan).strip().lower()
+    if not value:
+        return None
+    if value in PLAN_QUICK:
         return "quick"
+    if value in PLAN_FULL:
+        return "full"
     return None
 
 
@@ -81,20 +76,28 @@ async def fetch_purchase_kind(telegram_id: int) -> str | None:
         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
     }
     url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/profiles"
-    params_list = [
-        {"telegram": f"eq.{telegram_id}", "select": "*"},
-        {"telegram_id": f"eq.{telegram_id}", "select": "*"},
+    lookups = [
+        {"telegram": f"eq.{telegram_id}", "select": "plan"},
+        {"telegram_id": f"eq.{telegram_id}", "select": "plan"},
     ]
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            for params in params_list:
+            for params in lookups:
                 resp = await client.get(url, headers=headers, params=params)
                 if resp.status_code >= 300:
-                    log.warning("profiles lookup %s -> %s %s", params, resp.status_code, resp.text[:200])
+                    log.warning("profiles plan lookup %s -> %s %s", params, resp.status_code, resp.text[:200])
                     continue
                 rows = resp.json()
-                if isinstance(rows, list) and rows:
-                    return classify_purchase(rows[0])
+                if not isinstance(rows, list) or not rows:
+                    continue
+                kinds = {classify_plan(row.get("plan")) for row in rows}
+                kinds.discard(None)
+                if len(kinds) == 1:
+                    return kinds.pop()
+                if len(kinds) > 1:
+                    log.warning("profiles plan conflict user=%s values=%s", telegram_id, kinds)
+                    return None
+                return None
     except Exception as e:
         log.error("fetch_purchase_kind user=%s: %s", telegram_id, e)
     return None
