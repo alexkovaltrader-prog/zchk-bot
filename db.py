@@ -44,6 +44,7 @@ def init_db():
                 push_touch INTEGER NOT NULL DEFAULT 0,
                 push_sequence_done INTEGER NOT NULL DEFAULT 0,
                 blocked INTEGER NOT NULL DEFAULT 0,
+                funnel_version TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -59,6 +60,49 @@ def init_db():
                 event TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            """
+        )
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS funnel_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                event TEXT NOT NULL,
+                step_id TEXT,
+                step_index INTEGER,
+                button_id TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS funnel_followups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                branch TEXT NOT NULL,
+                touch INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(bot_users)")}
+        extra = {
+            "funnel_version": "TEXT",
+            "last_step_at": "TEXT",
+            "onboarding_completed": "INTEGER NOT NULL DEFAULT 0",
+            "funnel_branch": "TEXT",
+            "purchase_kind": "TEXT",
+            "funnel_followup_done": "INTEGER NOT NULL DEFAULT 0",
+            "funnel_objection": "TEXT",
+            "asked_manager": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for name, decl in extra.items():
+            if name not in cols:
+                conn.execute(f"ALTER TABLE bot_users ADD COLUMN {name} {decl}")
+        conn.execute(
+            """
+            UPDATE bot_users
+            SET funnel_version = 'v1'
+            WHERE (funnel_version IS NULL OR TRIM(funnel_version) = '')
+              AND onboarding_started = 1
             """
         )
 
@@ -115,6 +159,140 @@ def mark_subscribed(telegram_id: int):
 
 def mark_blocked(telegram_id: int):
     update_user(telegram_id, blocked=1, push_sequence_done=1)
+
+
+def delete_user(telegram_id: int):
+    init_db()
+    with connect() as conn:
+        conn.execute("DELETE FROM funnel_events WHERE telegram_id = ?", (telegram_id,))
+        conn.execute("DELETE FROM funnel_followups WHERE telegram_id = ?", (telegram_id,))
+        conn.execute("DELETE FROM push_events WHERE telegram_id = ?", (telegram_id,))
+        conn.execute("DELETE FROM bot_users WHERE telegram_id = ?", (telegram_id,))
+
+
+def log_funnel_event(
+    telegram_id: int,
+    event: str,
+    step_id: str | None = None,
+    step_index: int | None = None,
+    button_id: str | None = None,
+):
+    init_db()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO funnel_events (
+                telegram_id, event, step_id, step_index, button_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (telegram_id, event, step_id, step_index, button_id, _now()),
+        )
+
+
+def log_funnel_followup(telegram_id: int, branch: str, touch: int):
+    init_db()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO funnel_followups (telegram_id, branch, touch, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (telegram_id, branch, touch, _now()),
+        )
+
+
+def followup_touches(telegram_id: int, branch: str) -> set[int]:
+    init_db()
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT touch FROM funnel_followups
+            WHERE telegram_id = ? AND branch = ?
+            """,
+            (telegram_id, branch),
+        ).fetchall()
+        return {int(r["touch"]) for r in rows}
+
+
+def due_funnel_followup_users() -> list[dict]:
+    init_db()
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM bot_users
+            WHERE funnel_version = 'v2'
+              AND onboarding_started = 1
+              AND funnel_followup_done = 0
+              AND blocked = 0
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def funnel_metrics() -> dict:
+    init_db()
+    with connect() as conn:
+        views = conn.execute(
+            """
+            SELECT step_index, step_id, COUNT(DISTINCT telegram_id) AS users
+            FROM funnel_events
+            WHERE event = 'step_view'
+            GROUP BY step_index, step_id
+            ORDER BY step_index
+            """
+        ).fetchall()
+        clicks = conn.execute(
+            """
+            SELECT button_id, COUNT(*) AS n
+            FROM funnel_events
+            WHERE event = 'link_click'
+            GROUP BY button_id
+            """
+        ).fetchall()
+        impressions = conn.execute(
+            """
+            SELECT button_id, COUNT(*) AS n
+            FROM funnel_events
+            WHERE event = 'link_impression'
+            GROUP BY button_id
+            """
+        ).fetchall()
+        reached = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM bot_users
+            WHERE funnel_version = 'v2' AND onboarding_completed = 1
+            """
+        ).fetchone()
+        started = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM bot_users
+            WHERE funnel_version = 'v2' AND onboarding_started = 1
+            """
+        ).fetchone()
+        purchases = conn.execute(
+            """
+            SELECT purchase_kind, COUNT(*) AS n FROM bot_users
+            WHERE funnel_version = 'v2' AND purchase_kind IS NOT NULL AND purchase_kind != ''
+            GROUP BY purchase_kind
+            """
+        ).fetchall()
+        return {
+            "step_users": [dict(r) for r in views],
+            "link_clicks": [dict(r) for r in clicks],
+            "link_impressions": [dict(r) for r in impressions],
+            "v2_started": int(started["n"] if started else 0),
+            "v2_reached_9": int(reached["n"] if reached else 0),
+            "purchases": [dict(r) for r in purchases],
+        }
+
+
+def hours_since_iso(value: str | None) -> float | None:
+    if not value:
+        return None
+    started = datetime.fromisoformat(value)
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds() / 3600
 
 
 def log_push(telegram_id: int, touch: int, event: str):

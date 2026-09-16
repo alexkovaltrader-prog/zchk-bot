@@ -35,9 +35,24 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 CALENDLY_URL = "https://calendly.com/zaichikturit/founder-call"
 
 import db
+import funnel_followups
+import funnels
 import gate
 import onboarding
-from config import GATE_ALERT_NOT_SUB, MENU_REVIEWS, PLATFORM_URL, REVIEWS_URL, log_image_assets
+import pushes
+from config import (
+    ADMIN_IDS,
+    BTN_WRITE_MANAGER,
+    GATE_ALERT_NOT_SUB,
+    MANAGER_CONTACT_TEXT,
+    MANAGER_CONTACT_URL,
+    MANAGER_START_PAYLOAD,
+    MENU_REVIEWS,
+    PLATFORM_URL,
+    REVIEWS_URL,
+    log_image_assets,
+    manager_deep_link,
+)
 
 
 def calendly_link(user_id: int) -> str:
@@ -681,9 +696,49 @@ async def send_quiz_welcome(bot, chat_id, first_name):
 
 
 # ── ХЭНДЛЕРЫ ─────────────────────────────────────────────────────────────────
+async def send_manager_contact(bot, chat_id: int):
+    kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton(BTN_WRITE_MANAGER, url=MANAGER_CONTACT_URL)]]
+    )
+    await bot.send_message(chat_id=chat_id, text=MANAGER_CONTACT_TEXT, reply_markup=kb)
+
+
+async def handle_manager_start(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    db.upsert_on_start(user.id, "direct")
+    row = db.get_user(user.id) or {}
+    from funnels.v2_path import STEPS
+
+    index = int(row.get("onboarding_step") or 0)
+    index = max(0, min(index, len(STEPS) - 1))
+    step_id = STEPS[index]["id"]
+    db.update_user(user.id, asked_manager=1)
+    db.log_funnel_event(
+        user.id,
+        "manager_request",
+        step_id=step_id,
+        step_index=index,
+        button_id="manager",
+    )
+    await send_manager_contact(context.bot, update.effective_chat.id)
+
+
+async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not user or user.id not in ADMIN_IDS:
+        return
+    db.delete_user(user.id)
+    user_states.pop(user.id, None)
+    user_locks.pop(user.id, None)
+    version = funnels.default_version()
+    await update.message.reply_text(f"сброшено, версия воронки сейчас: {version}")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     source = get_source_from_context(context)
+    if source == MANAGER_START_PAYLOAD:
+        await handle_manager_start(update, context, user)
+        return
     if source.startswith("sl_") or source.startswith("s1_"):
         await save_profile_session_id(user.id, source)
     parsed = await resolve_payload(source)
@@ -704,6 +759,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         payload=parsed,
     )
 
+    db.upsert_on_start(user.id, source)
+    version = funnels.lock_funnel_version(user.id)
+    if version == "v2":
+        row = db.get_user(user.id) or {}
+        if int(row.get("subscribed") or 0) or int(row.get("gate_passed") or 0):
+            await onboarding.resume_or_start(context.bot, update.effective_chat.id, user.id)
+        else:
+            await gate.send_gate(context.bot, update.effective_chat.id)
+        return
+
     await send_quiz_welcome(context.bot, update.effective_chat.id, user.first_name)
 
 
@@ -715,8 +780,14 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "check_sub":
         await handle_check_sub(query, context, user)
         return
-    if data in ("onb:next", "onb:prev"):
+    if data in ("onb:next", "onb:prev", "onb:resume"):
         await handle_onboarding_nav(query, context, user, data)
+        return
+    if data.startswith("funnel:obj:"):
+        await handle_funnel_objection(query, context, user, data)
+        return
+    if data.startswith("funnel:clk:"):
+        await handle_funnel_link_click(query, context, user, data)
         return
 
     await query.answer()
@@ -763,6 +834,10 @@ async def handle_check_sub(query, context, user):
     if touch > 0:
         db.log_push(user.id, touch, "subscribed_after_touch")
         db.update_user(user.id, push_sequence_done=1)
+    version = funnels.lock_funnel_version(user.id)
+    if version == "v2":
+        await onboarding.resume_or_start(context.bot, query.message.chat_id, user.id)
+        return
     await send_quiz_welcome(context.bot, query.message.chat_id, user.first_name)
 
 
@@ -773,17 +848,82 @@ async def handle_onboarding_nav(query, context, user, data):
         pass
     row = db.get_user(user.id) or {}
     index = int(row.get("onboarding_step") or 0)
+    message_id = query.message.message_id if query.message else None
     if data == "onb:next":
         index += 1
-    else:
+    elif data == "onb:prev":
         index -= 1
+    elif data == "onb:resume":
+        message_id = None
     await onboarding.show_step(
         context.bot,
         query.message.chat_id,
         user.id,
         index,
-        query.message.message_id,
+        message_id,
     )
+
+
+async def handle_funnel_link_click(query, context, user, data):
+    from funnels.v2_path import STEPS, tracked_url
+
+    key = data.split(":")[-1]
+    row = db.get_user(user.id) or {}
+    index = int(row.get("onboarding_step") or 0)
+    index = max(0, min(index, len(STEPS) - 1))
+    step_id = STEPS[index]["id"]
+    dest = tracked_url(key, step_id)
+    db.log_funnel_event(
+        user.id,
+        "link_click",
+        step_id=step_id,
+        step_index=index,
+        button_id=key,
+    )
+    try:
+        await query.answer(url=dest)
+    except BadRequest as e:
+        logging.warning("answerCallbackQuery url failed button=%s: %s", key, e)
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        if dest:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=dest,
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("Открыть", url=dest)]]
+                ),
+            )
+
+
+async def handle_funnel_objection(query, context, user, data):
+    key = data.split(":")[-1]
+    db.update_user(user.id, funnel_objection=key)
+    db.log_funnel_event(user.id, "objection", button_id=key)
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    replies = {
+        "price": "Ок. Если полный доступ сейчас тяжело — есть Быстрый старт за 59$.",
+        "doubt": "Ок. Сомнения нормальны — посмотри отзывы, когда будет минута.",
+        "later": "Ок. Когда будешь готов — вход на том же месте.",
+    }
+    text = replies.get(key, "Ок, записал.")
+    kb = None
+    if key == "price":
+        from config import QUICK_START_URL
+
+        kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Быстрый старт — 59$", url=QUICK_START_URL)]]
+        )
+    elif key == "doubt":
+        kb = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Читать отзывы", url=REVIEWS_URL)]]
+        )
+    await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=kb)
 
 
 async def handle_menu_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1095,64 +1235,12 @@ async def handle_survey_answer(query, context, user, data):
 
 
 async def handle_platform_tour(query, context):
-    chat_id = query.message.chat_id
+    import funnels
+    import onboarding
 
-    tour_steps = [
-        {
-            "photo": "screen_login.jpg",
-            "text": "*01 — Регистрация за 30 секунд*\n\nЗаходишь на платформу, вводишь email и пароль — и сразу получаешь доступ. Можно войти через Google. Никаких лишних шагов.",
-        },
-        {
-            "photo": "screen_dasbord.jpg",
-            "text": "*02 — Главная панель*\n\nПосле входа попадаешь на дашборд. Здесь виден твой прогресс, доступные разделы и следующий шаг. Всё на одном экране.",
-        },
-        {
-            "photo": "screen_library.jpg",
-            "text": "*03 — Библиотека видеоуроков — 24 лекции*\n\nЭто ядро обучения. 24 урока разбиты на 5 блоков — от основ до проп-стратегий. Каждый урок: сначала теория, затем практика на реальном графике.",
-        },
-        {
-            "photo": "screen_lesson.jpg",
-            "text": None,
-        },
-        {
-            "photo": "screen_lesson2.jpg",
-            "text": None,
-        },
-        {
-            "photo": "screen_checklist.jpg",
-            "text": "*04 — Алгоритм анализа перед входом*\n\nИнтерактивный чеклист — пошаговый алгоритм который ты проходишь перед каждой сделкой. Убирает эмоции из принятия решений.",
-        },
-        {
-            "photo": "screen_articles.jpg",
-            "text": "*05 — Статьи и разборы от Ярослава*\n\nЯрослав сам пишет статьи с выжимками из практики. Не вода, не мотивация. Разборы реальных ситуаций, психология трейдера, типичные ошибки.",
-        },
-        {
-            "photo": "screen_metodichka.jpg",
-            "text": "*06 — Методичка — 6 частей с нуля до системы*\n\nТекстовая база знаний. 6 частей от полного нуля до рабочей торговой системы. Институциональный анализ, TDA, риск-менеджмент, психология — всё структурировано и по порядку.",
-        },
-    ]
-
-    for step in tour_steps:
-        try:
-            await send_cached_photo(context.bot, chat_id, step["photo"])
-        except Exception as e:
-            logging.error(f"Platform tour photo failed {step['photo']}: {e}")
-        if step["text"]:
-            try:
-                await context.bot.send_message(chat_id=chat_id, text=step["text"], parse_mode="Markdown")
-            except Exception as e:
-                logging.error(f"Platform tour text failed: {e}")
-
-    kb = [
-        [InlineKeyboardButton("Отзывы студентов",                        callback_data="show_reviews")],
-        [InlineKeyboardButton("Разобраться на платформе самостоятельно", callback_data="cta:platform")],
-        [InlineKeyboardButton("Записаться на звонок с Ярославом",        callback_data="cta:call")],
-    ]
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Это всё доступно сразу после регистрации. Триал бесплатно, без карты.",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+    user_id = query.from_user.id
+    funnels.lock_funnel_version(user_id)
+    await onboarding.resume_or_start(context.bot, query.message.chat_id, user_id)
 
 
 async def handle_reviews(query, context):
@@ -1225,8 +1313,23 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def post_init(app: Application):
+    import config
+
+    me = await app.bot.get_me()
+    if me and me.username:
+        config.BOT_USERNAME = me.username
+        config.MANAGER_URL = manager_deep_link(me.username)
+        logging.info("bot username: @%s manager deep link: %s", me.username, config.MANAGER_URL)
+    logging.info("funnel version: %s", funnels.default_version())
     log_image_assets()
     await app.bot.delete_webhook(drop_pending_updates=True)
+    db.init_db()
+    jq = app.job_queue
+    if jq is None:
+        logging.error("JobQueue unavailable; gate pushes and funnel followups disabled")
+        return
+    jq.run_repeating(pushes.run_push_job, interval=3600, first=30)
+    jq.run_repeating(funnel_followups.run_funnel_followup_job, interval=3600, first=45)
 
 
 def main():
@@ -1234,6 +1337,7 @@ def main():
     app.add_error_handler(on_error)
     logging.info("error handler registered on Application")
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reset", reset_cmd))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(f"^{MENU_REVIEWS}$"), handle_menu_reviews))
     print("ZCHK Academy бот запущен")
