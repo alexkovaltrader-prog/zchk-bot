@@ -23,7 +23,7 @@ CALENDLY_URL       = "https://calendly.com/zaichikturit/founder-call"
 def calendly_link(user_id: int) -> str:
     return f"{CALENDLY_URL}?utm_source={user_id}&utm_content={user_id}"
 
-GITHUB_BASE        = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
+from config import IMAGES_DIR
 
 # ── Тексты прогрева (все 24 ключа из бота) ───────────────────────────────────
 WARMUP = {
@@ -245,14 +245,14 @@ async def send_telegram(telegram_id: int, text: str, keyboard=None):
         return True
 
 
-async def send_photo_telegram(telegram_id: int, photo_url: str) -> bool:
+async def send_photo_telegram(telegram_id: int, filename: str) -> bool:
+    path = IMAGES_DIR / filename
+    if not path.is_file():
+        logging.error("photo missing: looked at %s", path.resolve())
+        return False
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            photo_resp = await client.get(photo_url)
-            if photo_resp.status_code != 200:
-                logging.warning(f"Photo download failed {photo_url}: {photo_resp.status_code}")
-                return False
-            files = {"photo": ("photo.jpg", photo_resp.content, "image/jpeg")}
+            files = {"photo": (filename, path.read_bytes(), "image/jpeg")}
             resp = await client.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
                 data={"chat_id": telegram_id},
@@ -285,10 +285,7 @@ async def process_warmup(telegram_id: int, step: int, payload: dict):
     ]
 
     if step == 1:
-        await send_photo_telegram(
-            telegram_id,
-            f"{GITHUB_BASE}/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png"
-        )
+        await send_photo_telegram(telegram_id, "review_screen.jpg")
 
     return await send_telegram(telegram_id, text, kb)
 
@@ -324,7 +321,7 @@ async def process_survey(telegram_id: int, payload: dict):
 
 
 async def process_pwa_announcement(telegram_id: int):
-    await send_photo_telegram(telegram_id, f"{GITHUB_BASE}/pwa_guide.jpg")
+    await send_photo_telegram(telegram_id, "pwa.jpg")
 
     text = (
         "Платформа ZCHK теперь работает как приложение 📱\n\n"

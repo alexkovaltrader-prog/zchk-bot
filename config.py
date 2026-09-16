@@ -4,15 +4,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 IMAGES_DIR = ROOT / "assets" / "images"
-GITHUB_BASE = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
 
 CHANNEL_USERNAME = "@ZAICHIKFx"
 CHANNEL_URL = "https://t.me/ZAICHIKFx"
 REVIEWS_URL = "https://t.me/ZAICHIKFx/1009"
 PLATFORM_URL = "https://zchkcapital.com/login.html"
 
-# Сейчас берём старые файлы с GitHub. Положи новый файл в assets/images с тем же именем — он перекроет.
-GATE_IMAGE = "Frame%20307.png"
+# Картинки только в assets/images, имена латиницей без пробелов.
+GATE_IMAGE = "gate.jpg"
 GATE_TEXT = (
     "Чтобы открыть доступ, нужна подписка на канал — там основное: "
     "разборы рынка, позиции и то, что я не выкладываю больше нигде.\n\n"
@@ -37,7 +36,7 @@ MENU_REVIEWS = "Отзывы"
 STEPS = [
     {
         "id": "register",
-        "image": "onb-register.jpg",
+        "image": "register.jpg",
         "title": "01 — Регистрация",
         "text": (
             "Создаёшь аккаунт — email, пароль, можно Google. "
@@ -46,7 +45,7 @@ STEPS = [
     },
     {
         "id": "intro",
-        "image": "onb-intro.jpg",
+        "image": "intro.jpg",
         "title": "02 — Перед стартом",
         "text": (
             "После регистрации — короткое видео на 11 минут. "
@@ -55,7 +54,7 @@ STEPS = [
     },
     {
         "id": "dashboard",
-        "image": "onb-dashboard.jpg",
+        "image": "dashboard.jpg",
         "title": "03 — Личный кабинет",
         "text": (
             "На главной виден прогресс и следующие шаги: регистрация, приложение на телефон, "
@@ -64,7 +63,7 @@ STEPS = [
     },
     {
         "id": "positions",
-        "image": "onb-positions.jpg",
+        "image": "positions.jpg",
         "title": "04 — Позиции и математика",
         "text": (
             "Открытые позиции и калькулятор: размер проп-аккаунта, доходность, "
@@ -73,7 +72,7 @@ STEPS = [
     },
     {
         "id": "videos",
-        "image": "onb-videos.jpg",
+        "image": "videos.jpg",
         "title": "05 — Видеоуроки",
         "text": (
             "Библиотека: 24 урока Price Action. На trial доступна первая часть методички "
@@ -82,7 +81,7 @@ STEPS = [
     },
     {
         "id": "methodichka",
-        "image": "onb-methodichka.jpg",
+        "image": "methodichka.jpg",
         "title": "06 — Методичка",
         "text": (
             "7 частей с нуля до системы: основы, структура тренда, Price Action, "
@@ -91,7 +90,7 @@ STEPS = [
     },
     {
         "id": "articles",
-        "image": "onb-articles.jpg",
+        "image": "articles.jpg",
         "title": "07 — Статьи и разборы",
         "text": (
             "Выжимки из практики: журнал сделок, ошибки мышления, статистика. "
@@ -100,7 +99,7 @@ STEPS = [
     },
     {
         "id": "live",
-        "image": "onb-live.jpg",
+        "image": "live.jpg",
         "title": "08 — Сделки в рынке",
         "text": (
             "Позиции публикуются до результата — со стопом, тейком и разбором логики входа. "
@@ -113,7 +112,7 @@ PUSHES = [
     {
         "touch": 1,
         "delay_hours": 24,
-        "image": "Frame%20307.png",
+        "image": "gate.jpg",
         "text": (
             "Ты остановился на первом шаге.\n\n"
             "Чтобы открыть доступ, нужна подписка на канал — там основное: "
@@ -124,7 +123,7 @@ PUSHES = [
     {
         "touch": 2,
         "delay_hours": 72,
-        "image": "IMG_0101.JPG",
+        "image": "story.jpg",
         "text": (
             "Пока ты не дошёл, коротко о главном.\n\n"
             "Большинство сливает не потому, что не знает паттернов. "
@@ -137,7 +136,7 @@ PUSHES = [
     {
         "touch": 3,
         "delay_hours": 24 * 7,
-        "image": "photo_2026-06-09_18-03-29.jpg",
+        "image": "reviews.jpg",
         "text": (
             "Последнее сообщение, дальше не пишу.\n\n"
             "Доступ к боту остаётся, он никуда не денется. "
@@ -147,3 +146,23 @@ PUSHES = [
         "show_reviews": True,
     },
 ]
+
+
+def configured_images() -> list[str]:
+    names = [GATE_IMAGE]
+    names.extend(step["image"] for step in STEPS)
+    names.extend(item["image"] for item in PUSHES)
+    return names
+
+
+def log_image_assets():
+    import logging
+
+    log = logging.getLogger(__name__)
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    for name in configured_images():
+        path = (IMAGES_DIR / name).resolve()
+        if path.is_file():
+            log.info("image ok %s -> %s", name, path)
+        else:
+            log.error("image MISSING %s -> %s", name, path)

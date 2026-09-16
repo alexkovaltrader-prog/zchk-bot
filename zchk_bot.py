@@ -14,7 +14,7 @@ import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import BadRequest
+from telegram.error import BadRequest, Conflict
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, MessageHandler,
     ContextTypes, filters,
@@ -32,14 +32,13 @@ META_API_VERSION     = os.getenv("META_API_VERSION", "v20.0")
 SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
-GITHUB_BASE  = "https://raw.githubusercontent.com/alexkovaltrader-prog/zchk-bot/main"
 CALENDLY_URL = "https://calendly.com/zaichikturit/founder-call"
 
 import db
 import gate
 import onboarding
 import pushes
-from config import GATE_ALERT_NOT_SUB, MENU_REVIEWS, PLATFORM_URL, REVIEWS_URL
+from config import GATE_ALERT_NOT_SUB, MENU_REVIEWS, PLATFORM_URL, REVIEWS_URL, log_image_assets
 
 
 def calendly_link(user_id: int) -> str:
@@ -263,54 +262,22 @@ async def send_meta_event(
 
 # ── ФОТО ДЛЯ РЕЗУЛЬТАТОВ ─────────────────────────────────────────────────────
 RESULT_PHOTOS = {
-    "novice":      "photo_como_lake.jpg",
-    "beginner":    "Frame_138.png",
-    "experienced": "%D0%91%D0%B5%D0%B7%20%D0%BD%D0%B0%D0%B7%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F.png",
+    "novice":      "result_novice.jpg",
+    "beginner":    "result_beginner.jpg",
+    "experienced": "result_experienced.jpg",
 }
 
-# ── FETCH PHOTO ───────────────────────────────────────────────────────────────
-async def fetch_photo(url: str):
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            data = r.content
-        if len(data) > 5 * 1024 * 1024:
-            from PIL import Image
-            import io
-            img = Image.open(io.BytesIO(data))
-            img = img.convert("RGB")
-            if max(img.size) > 1280:
-                img.thumbnail((1280, 1280), Image.LANCZOS)
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=75)
-            data = buf.getvalue()
-        return data
-    except Exception as e:
-        logging.error(f"fetch_photo failed {url}: {e}")
-        return None
+async def send_cached_photo(bot, chat_id, filename, **kwargs):
+    from media import send_photo
 
-PHOTO_FILE_ID_CACHE = {}
-
-async def send_cached_photo(bot, chat_id, url, **kwargs):
-    try:
-        file_id = PHOTO_FILE_ID_CACHE.get(url)
-        if file_id:
-            try:
-                return await bot.send_photo(chat_id=chat_id, photo=file_id, **kwargs)
-            except BadRequest:
-                PHOTO_FILE_ID_CACHE.pop(url, None)
-
-        data = await fetch_photo(url)
-        if data is None:
-            return None
-
-        message = await bot.send_photo(chat_id=chat_id, photo=data, **kwargs)
-        PHOTO_FILE_ID_CACHE[url] = message.photo[-1].file_id
-        return message
-    except Exception as e:
-        logging.error(f"send_cached_photo failed {url}: {e}")
-        return None
+    return await send_photo(
+        bot,
+        chat_id,
+        filename,
+        kwargs.get("caption") or "",
+        kwargs.get("reply_markup"),
+        kwargs.get("parse_mode"),
+    )
 
 # ── ИСТОРИЯ И ПОЧЕМУ ZCHK ────────────────────────────────────────────────────
 STORY_TEXT = """*Меня зовут Ярослав Зайцев*
@@ -931,7 +898,7 @@ async def send_result(query, context, user, result_key):
         msg = await send_cached_photo(
             context.bot,
             chat_id,
-            f"{GITHUB_BASE}/{RESULT_PHOTOS[track]}",
+            RESULT_PHOTOS[track],
             caption=r["text"],
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(kb),
@@ -1000,7 +967,7 @@ async def handle_story(query, context):
     kb      = [[InlineKeyboardButton("Почему ZCHK", callback_data="show_why")]]
     chat_id = query.message.chat_id
     try:
-        await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/IMG_0101.JPG")
+        await send_cached_photo(context.bot, chat_id, "story.jpg")
     except Exception as e:
         logging.error(f"Story photo failed: {e}")
     await context.bot.send_message(chat_id=chat_id, text=STORY_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
@@ -1116,14 +1083,11 @@ async def handle_platform_tour(query, context):
 async def handle_reviews(query, context):
     chat_id = query.message.chat_id
 
-    review_photos = [
-        "photo_2026-06-09_18-03-29.jpg",
-        "%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png",
-    ]
+    review_photos = ["reviews.jpg", "review_screen.jpg"]
 
     for photo_name in review_photos:
         try:
-            await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/{photo_name}")
+            await send_cached_photo(context.bot, chat_id, photo_name)
         except Exception as e:
             logging.error(f"Review photo failed {photo_name}: {e}")
 
@@ -1145,7 +1109,7 @@ async def handle_why(query, context):
     ]
     chat_id = query.message.chat_id
     try:
-        await send_cached_photo(context.bot, chat_id, f"{GITHUB_BASE}/photo_seacrest_cert.jpg")
+        await send_cached_photo(context.bot, chat_id, "why.jpg")
     except Exception as e:
         logging.error(f"Why photo failed: {e}")
     await context.bot.send_message(chat_id=chat_id, text=WHY_US_TEXT, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
@@ -1173,7 +1137,7 @@ async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
             await send_cached_photo(
                 context.bot,
                 data["chat_id"],
-                f"{GITHUB_BASE}/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202026-06-05%20150556.png",
+                "review_screen.jpg",
             )
         except Exception as e:
             logging.error(f"Warmup photo failed: {e}")
@@ -1184,13 +1148,29 @@ async def send_warmup(context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── ЗАПУСК ────────────────────────────────────────────────────────────────────
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    err = context.error
+    if isinstance(err, Conflict):
+        logging.warning("Polling conflict: another getUpdates is using this token")
+        return
+    logging.exception("Unhandled error", exc_info=err)
+
+
 async def post_init(app: Application):
+    log_image_assets()
+    await app.bot.delete_webhook(drop_pending_updates=True)
     db.init_db()
-    app.job_queue.run_repeating(pushes.run_push_job, interval=3600, first=30)
+    jq = app.job_queue
+    if jq is None:
+        logging.error("JobQueue unavailable; catch-up pushes disabled")
+        return
+    jq.run_repeating(pushes.run_push_job, interval=3600, first=30)
 
 
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
+    app.add_error_handler(on_error)
+    logging.info("error handler registered on Application")
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex(f"^{MENU_REVIEWS}$"), handle_menu_reviews))
