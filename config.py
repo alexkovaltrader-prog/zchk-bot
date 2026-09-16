@@ -17,8 +17,12 @@ FULL_ACCESS_URL = "https://app.lava.top/products/8aa52d23-7a67-41d4-a740-a995aee
 QUICK_START_URL = "https://app.lava.top/products/21e9a386-1e50-43af-b1cc-2277b272ad6d"
 
 
+# Продюсер и прочие, кому нужен /reset даже без Railway ADMIN_IDS.
+EXTRA_ADMIN_IDS = frozenset({6672319097})
+
+
 def _admin_ids() -> frozenset[int]:
-    ids = set()
+    ids = set(EXTRA_ADMIN_IDS)
     for part in os.getenv("ADMIN_IDS", "").split(","):
         part = part.strip()
         if not part:
