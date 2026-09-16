@@ -19,6 +19,14 @@ def image_path(filename: str) -> Path:
     return IMAGES_DIR / filename
 
 
+def _file_cache_key(filename: str) -> str:
+    path = image_path(filename)
+    if not path.is_file():
+        return filename
+    st = path.stat()
+    return f"{filename}:{st.st_size}:{st.st_mtime_ns}"
+
+
 def input_file(path: Path) -> InputFile:
     return InputFile(io.BytesIO(path.read_bytes()), filename=path.name)
 
@@ -26,7 +34,7 @@ def input_file(path: Path) -> InputFile:
 def _cache_photo_id(filename: str, message) -> None:
     photos = getattr(message, "photo", None) or []
     if photos:
-        db.set_file_id(filename, photos[-1].file_id)
+        db.set_file_id(_file_cache_key(filename), photos[-1].file_id)
 
 
 async def send_photo(bot, chat_id: int, filename: str, caption: str, reply_markup=None, parse_mode=None):
@@ -39,7 +47,8 @@ async def send_photo(bot, chat_id: int, filename: str, caption: str, reply_marku
             reply_markup=reply_markup,
             parse_mode=parse_mode,
         )
-    cached = db.get_file_id(filename)
+    key = _file_cache_key(filename)
+    cached = db.get_file_id(key)
     if cached:
         try:
             msg = await bot.send_photo(
@@ -53,7 +62,7 @@ async def send_photo(bot, chat_id: int, filename: str, caption: str, reply_marku
             return msg
         except BadRequest as e:
             log.warning("cached file_id failed %s: %s", filename, e)
-            db.delete_file_id(filename)
+            db.delete_file_id(key)
     try:
         msg = await bot.send_photo(
             chat_id=chat_id,
@@ -93,9 +102,11 @@ async def edit_photo(bot, chat_id: int, message_id: int, filename: str, caption:
                 return None
             raise
 
+    key = _file_cache_key(filename)
+
     async def _edit(use_cache: bool):
         if use_cache:
-            file_id = db.get_file_id(filename)
+            file_id = db.get_file_id(key)
             if not file_id:
                 return None
             media = InputMediaPhoto(media=file_id, caption=caption or None, parse_mode=parse_mode)
@@ -113,14 +124,14 @@ async def edit_photo(bot, chat_id: int, message_id: int, filename: str, caption:
         )
 
     try:
-        if db.get_file_id(filename):
+        if db.get_file_id(key):
             try:
                 return await _edit(True)
             except BadRequest as e:
                 if "not modified" in str(e).lower():
                     return None
                 log.warning("editMessageMedia file_id failed %s: %s", filename, e)
-                db.delete_file_id(filename)
+                db.delete_file_id(key)
         return await _edit(False)
     except BadRequest as e:
         if "not modified" in str(e).lower():
