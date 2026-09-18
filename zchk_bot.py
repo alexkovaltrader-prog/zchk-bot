@@ -930,23 +930,9 @@ async def handle_funnel_objection(query, context, user, data):
         await query.answer()
     except Exception:
         pass
-    replies = {
-        "price": "Ок. Если полный доступ сейчас тяжело — есть Быстрый старт за 59$.",
-        "doubt": "Ок. Сомнения нормальны — посмотри отзывы, когда будет минута.",
-        "later": "Ок. Когда будешь готов — вход на том же месте.",
-    }
-    text = replies.get(key, "Ок, записал.")
-    kb = None
-    if key == "price":
-        from config import QUICK_START_URL
+    from funnel_followups import objection_reply
 
-        kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Быстрый старт — 59$", url=QUICK_START_URL)]]
-        )
-    elif key == "doubt":
-        kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Читать отзывы", url=REVIEWS_URL)]]
-        )
+    text, kb = objection_reply(key)
     await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=kb)
 
 
@@ -1344,8 +1330,15 @@ async def post_init(app: Application):
         config.BOT_USERNAME = me.username
         config.MANAGER_URL = manager_deep_link(me.username)
         logging.info("bot username: @%s manager deep link: %s", me.username, config.MANAGER_URL)
-    logging.info("funnel version: %s", funnels.default_version())
+    version = funnels.default_version()
+    logging.info("FUNNEL_VERSION=%s", version)
+    if version != "v2":
+        logging.warning("FUNNEL_VERSION is %s, expected v2", version)
+    if not (config.WORK_ACCOUNT_URL or "").strip():
+        logging.warning("WORK_ACCOUNT_URL is empty, hide Написать мне")
+    funnels.log_funnel_runtime_config()
     funnels.log_caption_lengths()
+    funnels.log_referenced_screen_keys()
     log_image_assets()
     await app.bot.delete_webhook(drop_pending_updates=True)
     db.init_db()

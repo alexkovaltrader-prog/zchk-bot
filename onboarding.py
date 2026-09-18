@@ -43,11 +43,19 @@ async def show_step(bot, chat_id: int, user_id: int, index: int, message_id: int
         step_id=step.get("id"),
         step_index=index,
     )
+    from config import PROP_VIDEO_ENABLED, WORK_ACCOUNT_URL
+
     layout = step.get("layout") or "nav"
+    prop_buttons = ["cft"]
+    if WORK_ACCOUNT_URL:
+        prop_buttons = ["work_account", "cft"]
+    future_buttons = ["register", "full", "quick", "manager"]
+    if PROP_VIDEO_ENABLED:
+        future_buttons = ["register", "full", "quick", "prop_video", "manager"]
     shown = {
-        "prop": ["work_account"],
+        "prop": prop_buttons,
         "result": ["reviews"],
-        "future": ["register", "full", "quick", "prop_video", "manager"],
+        "future": future_buttons,
     }
     for button_id in shown.get(layout, []):
         db.log_funnel_event(

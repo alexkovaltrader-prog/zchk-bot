@@ -16,7 +16,10 @@ import db
 from config import (
     CFT_URL,
     FULL_ACCESS_URL,
+    MANAGER_CONTACT_URL,
     MANAGER_URL,
+    PLAN_FULL,
+    PLAN_QUICK,
     PLATFORM_URL,
     PUSH_HOUR_END_MSK,
     PUSH_HOUR_START_MSK,
@@ -35,6 +38,7 @@ BRANCH_A = "A"
 BRANCH_B = "B"
 BRANCH_C = "C"
 BRANCH_D = "D"
+D_BRANCH_STEP_IDS = frozenset({"s3_two_paths", "s6a_capital", "s6b_props"})
 
 
 def in_send_window(now: datetime | None = None) -> bool:
@@ -46,13 +50,8 @@ def _hours(value: str | None) -> float:
     return db.hours_since_iso(value) or 0.0
 
 
-# Тариф в profiles.plan (пишет lava-webhook / grant-trial, не эвристика по всем полям).
-# book       — Быстрый старт $59 (Lava 21e9a386-1e50-43af-b1cc-2277b272ad6d)
-# book_video — полный доступ (методичка + видео)
-# video / extended — полный видеодоступ (как book_video на платформе)
-# trial / pending / пусто — покупки нет
-PLAN_QUICK = frozenset({"book"})
-PLAN_FULL = frozenset({"book_video"})
+# book = Быстрый старт $59. book_video / video / extended = полный доступ.
+# trial / pending / пусто = покупки нет.
 
 
 def classify_plan(plan) -> str | None:
@@ -106,7 +105,7 @@ async def fetch_purchase_kind(telegram_id: int) -> str | None:
 def next_touch(branch: str, sent: set[int], hours: float) -> int | None:
     schedule = {
         BRANCH_A: [(0, 0), (3, 72), (7, 168), (14, 336)],
-        BRANCH_B: [(0, 0), (14, 168), (21, 504)],
+        BRANCH_B: [(0, 0), (14, 336), (21, 504)],
         BRANCH_C: [(1, 24), (3, 72), (7, 168)],
         BRANCH_D: [(1, 24)],
     }
@@ -121,6 +120,35 @@ def next_touch(branch: str, sent: set[int], hours: float) -> int | None:
 
 def _url_kb(label: str, url: str):
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=url)]])
+
+
+def _rows_kb(rows: list) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(rows)
+
+
+OBJECTION_REPLIES: dict[str, tuple[str, InlineKeyboardMarkup | None]] = {
+    "price": (
+        "Если полный доступ сейчас тяжело, начни с Быстрого старта за $59. Там база, без неё дальше смысла нет.",
+        _url_kb("Быстрый старт, $59", QUICK_START_URL),
+    ),
+    "doubt": (
+        "Это нормально. Посмотри, что пишут те, кто уже внутри, или задай вопрос менеджеру напрямую.",
+        _rows_kb(
+            [
+                [InlineKeyboardButton("Читать отзывы", url=REVIEWS_URL)],
+                [InlineKeyboardButton("Написать менеджеру", url=MANAGER_CONTACT_URL)],
+            ]
+        ),
+    ),
+    "later": (
+        "Ок. Когда будешь готов, вход на том же месте.",
+        None,
+    ),
+}
+
+
+def objection_reply(key: str) -> tuple[str, InlineKeyboardMarkup | None]:
+    return OBJECTION_REPLIES.get(key) or ("Ок, записал.", None)
 
 
 def _current_step_id(user: dict) -> str:
@@ -138,33 +166,38 @@ def message_for(branch: str, touch: int, user: dict) -> tuple[str, InlineKeyboar
     if branch == BRANCH_A:
         if touch == 0:
             return (
-                "Ты внутри. Начинай с первого модуля, он занимает час",
+                "Доступ открыт. Начни с первого модуля, он занимает около часа.",
                 _url_kb("Открыть платформу", PLATFORM_URL),
             )
         if touch == 3:
-            return ("Как идёт разметка? Скинь свой график, посмотрю", _url_kb("Написать", MANAGER_URL))
+            return (
+                "Как идёт разметка? Кидай скрин графика, посмотрю.",
+                _url_kb("Написать", MANAGER_URL),
+            )
         if touch == 7:
             return (
-                "Ты прошёл базу. Вот чего в ней нет — и почему это важно.\n\n"
-                "База даёт структуру. Дальше нужна система целиком: позиции, разборы, сопровождение.",
-                _url_kb("Годовой план", FULL_ACCESS_URL),
+                "Базу ты прошёл. Дальше идут остальные 17 лекций Академии и калькулятор рисков под CFT. Без них система не собирается целиком.",
+                _url_kb("Полный доступ", FULL_ACCESS_URL),
             )
         return (
-            "Кейс человека, который доплатил. Цена фиксации — пока она ещё стоит.",
-            _url_kb("Зафиксировать", FULL_ACCESS_URL),
+            "Многие берут быстрый старт, проходят базу и добирают полный доступ, когда упираются в потолок материала. Открыть можно прямо из личного кабинета.",
+            _url_kb("Полный доступ", FULL_ACCESS_URL),
         )
     if branch == BRANCH_B:
         if touch == 0:
             return (
-                "План на первые две недели: разметка, гипотезы, риск. Иди по порядку, не перескакивай.",
+                "Ты внутри. План на первые две недели: разметка, гипотезы, риск. Иди по порядку, не перескакивай.",
                 _url_kb("Открыть платформу", PLATFORM_URL),
             )
         if touch == 14:
             return (
-                "База пройдена. Пора брать челлендж.",
+                "База пройдена, можно брать челлендж. Помни: первый это тренировка.",
                 _url_kb("Забрать условия CFT", CFT_URL),
             )
-        return ("Как аккаунт?", _url_kb("Написать статус", MANAGER_URL))
+        return (
+            "Как челлендж? Напиши, где ты сейчас: в плюсе, в минусе или слил. Разберём.",
+            _url_kb("Написать статус", MANAGER_URL),
+        )
     if branch == BRANCH_C:
         if touch == 1:
             kb = InlineKeyboardMarkup(
@@ -177,44 +210,39 @@ def message_for(branch: str, touch: int, user: dict) -> tuple[str, InlineKeyboar
                 ]
             )
             return (
-                "Что остановило? Ответь одним словом — цена, сомнения или не сейчас",
+                "Ты дошёл до конца, но так и не выбрал. Что остановило?",
                 kb,
             )
         if touch == 3:
             obj = (user.get("funnel_objection") or "").strip()
-            if obj == "price":
-                text = (
-                    "Если полный доступ сейчас тяжело — есть Быстрый старт за 59$. "
-                    "База, без которой дальше нет смысла."
-                )
-                return text, _url_kb("Быстрый старт — 59$", QUICK_START_URL)
-            if obj == "doubt":
-                text = "Сомнения нормальны. Посмотри, что пишут те, кто уже прошёл."
-                return text, _url_kb("Читать отзывы", REVIEWS_URL)
-            if obj == "later":
-                return ("Ок. Когда будешь готов — вход на том же месте.", None)
+            if obj:
+                return objection_reply(obj)
             return (
-                "Если коротко: путь тот же. Либо полный доступ, либо база за 59$.",
-                InlineKeyboardMarkup(
+                "Если коротко, вход два: полный доступ или база за $59.",
+                _rows_kb(
                     [
                         [InlineKeyboardButton("Полный доступ", url=FULL_ACCESS_URL)],
-                        [InlineKeyboardButton("Быстрый старт — 59$", url=QUICK_START_URL)],
+                        [InlineKeyboardButton("Быстрый старт, $59", url=QUICK_START_URL)],
                     ]
                 ),
             )
         return (
-            "Последнее сообщение, дальше не пишу.\n\nОтзывы тех, кто уже внутри.",
+            "Последнее сообщение, дальше не пишу. Отзывы тех, кто уже внутри.",
             _url_kb("Читать отзывы", REVIEWS_URL),
         )
-    # D
     if step_id == "s3_two_paths":
         return (
-            "Не решил, что выбрать? Напиши, подскажу",
-            _url_kb("Написать", MANAGER_URL),
+            "Не решил, что выбрать? Напиши, подскажу, что подойдёт под твою ситуацию.",
+            _rows_kb(
+                [
+                    [InlineKeyboardButton("Написать", url=MANAGER_URL)],
+                    [InlineKeyboardButton("Продолжить", callback_data="onb:resume")],
+                ]
+            ),
         )
-    if step_id == "s6_capital":
+    if step_id in {"s6a_capital", "s6b_props"}:
         return (
-            "Дошёл до челленджа и остановился. Вопрос в деньгах или в готовности?",
+            "Ты остановился на челлендже. Вопрос в деньгах или в готовности?",
             InlineKeyboardMarkup(
                 [[InlineKeyboardButton("Продолжить с этого места", callback_data="onb:resume")]]
             ),
@@ -229,6 +257,11 @@ def message_for(branch: str, touch: int, user: dict) -> tuple[str, InlineKeyboar
 
 async def send_followup(bot, user: dict, branch: str, touch: int) -> bool:
     uid = user["telegram_id"]
+    if branch == BRANCH_C and touch == 3 and (user.get("funnel_objection") or "").strip():
+        db.log_funnel_followup(uid, branch, touch)
+        db.update_user(uid, funnel_branch=branch)
+        log.info("funnel followup skip C_72 already answered user=%s", uid)
+        return True
     text, kb = message_for(branch, touch, user)
     try:
         await bot.send_message(chat_id=uid, text=text, reply_markup=kb)

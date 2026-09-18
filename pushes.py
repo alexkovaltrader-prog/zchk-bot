@@ -41,13 +41,15 @@ def hours_since(first_start_at: str) -> float:
 
 
 def push_keyboard(touch_cfg: dict):
-    row = [
-        InlineKeyboardButton(BTN_SUBSCRIBE, url=CHANNEL_URL),
-        InlineKeyboardButton(BTN_CHECK, callback_data="check_sub"),
-    ]
-    rows = [row]
+    rows = []
     if touch_cfg.get("show_reviews"):
         rows.append([InlineKeyboardButton(BTN_REVIEWS, url=REVIEWS_URL)])
+    rows.append(
+        [
+            InlineKeyboardButton(BTN_SUBSCRIBE, url=CHANNEL_URL),
+            InlineKeyboardButton(BTN_CHECK, callback_data="check_sub"),
+        ]
+    )
     return InlineKeyboardMarkup(rows)
 
 
