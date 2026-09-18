@@ -722,6 +722,28 @@ async def handle_manager_start(update: Update, context: ContextTypes.DEFAULT_TYP
     await send_manager_contact(context.bot, update.effective_chat.id)
 
 
+async def handle_funnel_manager(query, context, user):
+    try:
+        await query.answer()
+    except Exception:
+        pass
+    from funnels.v2_path import STEPS
+
+    row = db.get_user(user.id) or {}
+    index = int(row.get("onboarding_step") or 0)
+    index = max(0, min(index, len(STEPS) - 1))
+    step_id = STEPS[index]["id"]
+    db.update_user(user.id, asked_manager=1)
+    db.log_funnel_event(
+        user.id,
+        "manager_request",
+        step_id=step_id,
+        step_index=index,
+        button_id="manager",
+    )
+    await send_manager_contact(context.bot, query.message.chat_id)
+
+
 async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user or user.id not in ADMIN_IDS:
@@ -785,6 +807,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("funnel:obj:"):
         await handle_funnel_objection(query, context, user, data)
+        return
+    if data == "funnel:manager":
+        await handle_funnel_manager(query, context, user)
         return
     if data.startswith("funnel:clk:"):
         await handle_funnel_link_click(query, context, user, data)

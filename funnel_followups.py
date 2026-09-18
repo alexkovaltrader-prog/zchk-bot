@@ -123,8 +123,18 @@ def _url_kb(label: str, url: str):
     return InlineKeyboardMarkup([[InlineKeyboardButton(label, url=url)]])
 
 
+def _current_step_id(user: dict) -> str:
+    from funnels.v2_path import STEPS
+
+    index = int(user.get("onboarding_step") or 0)
+    if not STEPS:
+        return ""
+    index = max(0, min(index, len(STEPS) - 1))
+    return STEPS[index].get("id") or ""
+
+
 def message_for(branch: str, touch: int, user: dict) -> tuple[str, InlineKeyboardMarkup | None]:
-    step = int(user.get("onboarding_step") or 0)
+    step_id = _current_step_id(user)
     if branch == BRANCH_A:
         if touch == 0:
             return (
@@ -197,12 +207,12 @@ def message_for(branch: str, touch: int, user: dict) -> tuple[str, InlineKeyboar
             _url_kb("Читать отзывы", REVIEWS_URL),
         )
     # D
-    if step == 3:
+    if step_id == "s3_two_paths":
         return (
             "Не решил, что выбрать? Напиши, подскажу",
             _url_kb("Написать", MANAGER_URL),
         )
-    if step == 5:
+    if step_id == "s6_capital":
         return (
             "Дошёл до челленджа и остановился. Вопрос в деньгах или в готовности?",
             InlineKeyboardMarkup(

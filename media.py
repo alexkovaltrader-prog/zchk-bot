@@ -37,7 +37,18 @@ def _cache_photo_id(filename: str, message) -> None:
         db.set_file_id(_file_cache_key(filename), photos[-1].file_id)
 
 
+CAPTION_LIMIT = 1024
+
+
 async def send_photo(bot, chat_id: int, filename: str, caption: str, reply_markup=None, parse_mode=None):
+    if caption and len(caption) > CAPTION_LIMIT:
+        log.warning("caption over %s (%s), send as text: %s", CAPTION_LIMIT, len(caption), filename)
+        return await bot.send_message(
+            chat_id=chat_id,
+            text=caption,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
     path = image_path(filename)
     if not path.is_file():
         log.error("photo missing: looked at %s", path.resolve())
@@ -86,6 +97,8 @@ async def send_photo(bot, chat_id: int, filename: str, caption: str, reply_marku
 
 
 async def edit_photo(bot, chat_id: int, message_id: int, filename: str, caption: str, reply_markup=None, parse_mode=None):
+    if caption and len(caption) > CAPTION_LIMIT:
+        raise BadRequest("Message_caption_too_long")
     path = image_path(filename)
     if not path.is_file():
         log.error("photo missing: looked at %s", path.resolve())

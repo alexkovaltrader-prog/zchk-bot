@@ -15,6 +15,12 @@ PLATFORM_URL = "https://zchkcapital.com/login.html"
 CFT_URL = "https://cryptofundtrader.com/?via=zchkcapital"
 FULL_ACCESS_URL = "https://app.lava.top/products/8aa52d23-7a67-41d4-a740-a995aeefc504"
 QUICK_START_URL = "https://app.lava.top/products/21e9a386-1e50-43af-b1cc-2277b272ad6d"
+# Рабочий аккаунт для кнопки «Написать мне» на экране пропов. Подставить боевую ссылку.
+WORK_ACCOUNT_URL = os.getenv("WORK_ACCOUNT_URL", "https://t.me/zchkcapitalmanager")
+# Ролик «Что такое пропы и как они работают». Подставить боевой URL.
+PROP_VIDEO_URL = os.getenv("PROP_VIDEO_URL", "https://t.me/ZAICHIKFx")
+# Дубль экрана 5. False = скрыть без правки воронки.
+SCREEN_S5_TWO_WEEKS_ENABLED = True
 
 
 # Продюсер и прочие, кому нужен /reset даже без Railway ADMIN_IDS.
@@ -37,12 +43,12 @@ def _admin_ids() -> frozenset[int]:
 ADMIN_IDS = _admin_ids()
 BOT_USERNAME = os.getenv("BOT_USERNAME", "zchkacademy_bot").lstrip("@")
 MANAGER_START_PAYLOAD = "manager_future"
+MANAGER_HANDLE = "@zchkcapitalmanager"
 MANAGER_CONTACT_URL = "https://t.me/zchkcapitalmanager"
 BTN_WRITE_MANAGER = "Написать менеджеру"
 MANAGER_CONTACT_TEXT = (
-    "Напиши менеджеру — ответит на любой вопрос по доступу,\n"
-    "оплате и тому, что подойдёт именно тебе.\n\n"
-    "@zchkcapitalmanager"
+    "Напиши менеджеру. Он ответит на любой вопрос по доступу, оплате и подскажет, что подойдёт именно тебе.\n"
+    f"{MANAGER_HANDLE}"
 )
 
 
@@ -88,9 +94,8 @@ def callback_query_can_open(url: str) -> bool:
 # Картинки только в assets/images, имена латиницей без пробелов.
 GATE_IMAGE = "gate.jpg"
 GATE_TEXT = (
-    "Чтобы открыть доступ, нужна подписка на канал — там основное: "
-    "разборы рынка, позиции и то, что я не выкладываю больше нигде.\n\n"
-    "Подпишись и нажми «Я подписался»."
+    "Для продолжения нужно подписаться на канал.\n\n"
+    "Дальше ты получишь ссылку на регистрацию и гайд, как проходить проп-фирмы."
 )
 GATE_ALERT_NOT_SUB = "Подписка не найдена. Проверь, что подписался на канал"
 
@@ -149,12 +154,12 @@ PUSHES = [
 
 def configured_images() -> list[str]:
     from funnels.v1_classic import STEPS as V1_STEPS
-    from funnels.v2_path import STEPS as V2_STEPS
+    from funnels.v2_path import ALL_STEPS as V2_ALL_STEPS
 
     names = [GATE_IMAGE]
     names.extend(item["image"] for item in PUSHES)
     names.extend(step["image"] for step in V1_STEPS)
-    names.extend(step["image"] for step in V2_STEPS)
+    names.extend(step["image"] for step in V2_ALL_STEPS)
     seen = set()
     unique = []
     for name in names:
